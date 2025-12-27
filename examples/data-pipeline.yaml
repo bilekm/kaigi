@@ -1,0 +1,20 @@
+# Data pipeline example
+# Fetches data, filters it, and counts results
+# Run with: orchestrator run examples/data-pipeline.yaml
+
+name: data-pipeline
+version: "1.0"
+description: Fetch, filter, and count JSON data
+steps:
+  - id: fetch
+    command: curl
+    args: ["-s", "https://jsonplaceholder.typicode.com/posts"]
+    timeout: 30
+
+  - id: filter
+    command: jq
+    args: ["[.[] | select(.userId == 1)]"]
+
+  - id: count
+    command: jq
+    args: ["length"]

@@ -1,0 +1,22 @@
+# Text processing pipeline
+# Demonstrates stdin/stdout chaining between agents
+# Run with: orchestrator run examples/text-processing.yaml
+
+name: text-processing
+version: "1.0"
+description: Process text through multiple transformations
+steps:
+  - id: generate
+    command: echo
+    args: ["Hello World\nFoo Bar\nBaz Qux"]
+
+  - id: uppercase
+    command: tr
+    args: ["[:lower:]", "[:upper:]"]
+
+  - id: sort
+    command: sort
+
+  - id: head
+    command: head
+    args: ["-n", "2"]
