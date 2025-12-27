@@ -1,50 +1,98 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+SYNC IMPACT REPORT
+==================
+Version change: 0.0.0 → 1.0.0 (MAJOR: initial constitution ratification)
+
+Modified principles: N/A (initial creation)
+
+Added sections:
+- Core Principles (3): CLI-Centric Interface, Composability, Fail Loudly
+- Development Workflow
+- Quality Standards
+- Governance
+
+Removed sections: N/A (initial creation)
+
+Templates requiring updates:
+- .specify/templates/plan-template.md: ✅ compatible (Constitution Check section exists)
+- .specify/templates/spec-template.md: ✅ compatible (no constitution-specific sections)
+- .specify/templates/tasks-template.md: ✅ compatible (no constitution-specific sections)
+- .specify/templates/checklist-template.md: ✅ compatible (no constitution-specific sections)
+- .specify/templates/agent-file-template.md: ✅ compatible (no constitution-specific sections)
+
+Follow-up TODOs: None
+-->
+
+# Orchestrator Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. CLI-Centric Interface
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+All Orchestrator components MUST expose functionality via command-line interface.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+- **Text protocol**: stdin/args as input, stdout as output, stderr for errors
+- **Machine-readable output**: MUST support JSON output format (`--json` or equivalent)
+- **Human-readable default**: Plain text output for interactive use
+- **Exit codes**: Zero for success, non-zero for failure with meaningful codes
+- **No GUI dependencies**: Core functionality MUST NOT require graphical interfaces
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+**Rationale**: CLI-first enables scripting, automation, testing, and composition with standard Unix tools. Agent coordination requires programmatic control.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### II. Composability
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+Components MUST be designed for composition via standard I/O patterns.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+- **Single responsibility**: Each component does one thing well
+- **Pipeable output**: stdout MUST be valid input for downstream components
+- **Stateless operations**: Prefer stateless transformations; state belongs in explicit stores
+- **Contract stability**: I/O contracts MUST be versioned; breaking changes require MAJOR version bump
+- **No hidden coupling**: Dependencies MUST be explicit in interface, not assumed from environment
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+**Rationale**: Agent coordination requires orchestrating multiple independent components. Composability enables flexible workflow construction without tight coupling.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### III. Fail Loudly
+
+Errors MUST be explicit, visible, and actionable. Silent failures are prohibited.
+
+- **No silent fallbacks**: `or {}`, `|| true`, and similar patterns that mask errors are forbidden
+- **Propagate errors**: Errors MUST bubble up with context, not be swallowed
+- **Structured error output**: Errors MUST include: error code, message, and source location
+- **Fail fast**: Invalid state MUST cause immediate, visible failure
+- **Log before crash**: Critical failures SHOULD log diagnostic info before terminating
+
+**Rationale**: In agent coordination, silent failures cause cascading issues that are expensive to debug. Hard failures with clear information enable rapid diagnosis and recovery.
+
+## Development Workflow
+
+- **Feature branches**: All work happens on feature branches; main/master is protected
+- **Code review**: Changes require review before merge
+- **Incremental delivery**: Features should be decomposable into independently testable increments
+- **Documentation**: Public interfaces MUST have usage documentation
+
+## Quality Standards
+
+- **Testing**: Critical paths require tests; coverage expectations set per-feature
+- **Linting**: Code MUST pass configured linters before merge
+- **Type safety**: Prefer statically typed languages or strict type checking where available
+- **Contract tests**: Inter-component communication requires contract tests
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes all other development practices within the Orchestrator project.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Amendment process**:
+1. Propose amendment with rationale
+2. Document impact on existing code and workflows
+3. Obtain approval from project maintainers
+4. Update constitution with version bump
+5. Propagate changes to dependent templates and documentation
+
+**Versioning policy**:
+- MAJOR: Principle removal, redefinition, or backward-incompatible governance changes
+- MINOR: New principle added, section expanded with new requirements
+- PATCH: Clarifications, wording improvements, non-semantic refinements
+
+**Compliance**: All code reviews MUST verify adherence to constitutional principles. Violations require explicit justification in the Complexity Tracking section of the implementation plan.
+
+**Version**: 1.0.0 | **Ratified**: 2025-12-27 | **Last Amended**: 2025-12-27
