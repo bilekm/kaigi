@@ -947,5 +947,253 @@ def agents_show(name: str, use_json: bool) -> None:
                 click.echo(f"    {k}: {display_v}")
 
 
+# === Persistent Agent Commands ===
+
+
+@agents.command("start")
+@click.argument("name")
+@click.option("--id", "agent_id", help="Custom agent ID (default: same as name)")
+@click.option("--background", "-b", is_flag=True, help="Run in background (daemonize)")
+def agents_start(name: str, agent_id: str | None, background: bool) -> None:
+    """Start a persistent agent server.
+
+    Starts the agent in interactive mode and exposes it via Unix socket.
+    Other processes can then communicate with it instantly.
+
+    Examples:
+
+        # Start Claude agent in foreground
+        orchestrator agents start claude
+
+        # Start in background
+        orchestrator agents start claude --background
+
+        # Start with custom ID
+        orchestrator agents start claude --id claude-1
+    """
+    from orchestrator.lib.settings import get_agent_config
+    from orchestrator.lib.agent_client import is_agent_running
+
+    config = get_agent_config(name)
+    if not config:
+        click.echo(f"Agent '{name}' not found in settings.")
+        click.echo("Run 'orchestrator agents list' to see available agents.")
+        sys.exit(1)
+
+    agent_id = agent_id or name
+
+    if is_agent_running(agent_id):
+        click.echo(f"Agent '{agent_id}' is already running.")
+        click.echo("Use 'orchestrator agents stop {agent_id}' to stop it first.")
+        sys.exit(1)
+
+    # Build command - for interactive mode, we don't use the prompt args
+    # Just start the CLI without -p flag
+    command = config.command
+    env = config.env
+
+    if background:
+        # Daemonize
+        import os
+        import subprocess
+        from orchestrator.lib.agent_server import get_socket_path, get_pid_path
+
+        click.echo(f"Starting agent '{agent_id}' in background...")
+
+        # Fork and run the server
+        pid = os.fork()
+        if pid == 0:
+            # Child - become session leader and fork again
+            os.setsid()
+            pid2 = os.fork()
+            if pid2 == 0:
+                # Grandchild - run the server
+                import sys
+                from orchestrator.lib.agent_server import run_agent_server
+
+                # Redirect stdio
+                sys.stdin.close()
+                with open("/dev/null", "r") as null:
+                    os.dup2(null.fileno(), 0)
+
+                log_path = get_socket_path(agent_id).with_suffix(".log")
+                with open(log_path, "w") as log:
+                    os.dup2(log.fileno(), 1)
+                    os.dup2(log.fileno(), 2)
+
+                run_agent_server(agent_id, command, env=env)
+                sys.exit(0)
+            else:
+                # Second parent - exit
+                os._exit(0)
+        else:
+            # First parent - wait for child
+            os.waitpid(pid, 0)
+
+            # Wait a moment for server to start
+            import time
+            time.sleep(2)
+
+            if is_agent_running(agent_id):
+                socket_path = get_socket_path(agent_id)
+                click.echo(f"Agent '{agent_id}' started.")
+                click.echo(f"Socket: {socket_path}")
+            else:
+                log_path = get_socket_path(agent_id).with_suffix(".log")
+                click.echo(f"Agent failed to start. Check log: {log_path}")
+                sys.exit(1)
+    else:
+        # Foreground - run directly
+        from orchestrator.lib.agent_server import run_agent_server, get_socket_path
+
+        click.echo(f"Starting agent '{agent_id}' in foreground...")
+        click.echo(f"Socket: {get_socket_path(agent_id)}")
+        click.echo("Press Ctrl+C to stop.")
+        click.echo()
+
+        try:
+            run_agent_server(agent_id, command, env=env)
+        except KeyboardInterrupt:
+            click.echo("\nAgent stopped.")
+
+
+@agents.command("stop")
+@click.argument("agent_id", required=False)
+@click.option("--all", "stop_all", is_flag=True, help="Stop all running agents")
+def agents_stop(agent_id: str | None, stop_all: bool) -> None:
+    """Stop a running persistent agent.
+
+    Examples:
+
+        # Stop specific agent
+        orchestrator agents stop claude
+
+        # Stop all running agents
+        orchestrator agents stop --all
+    """
+    from orchestrator.lib.agent_client import stop_agent, stop_all_agents, list_running_agents
+
+    if stop_all:
+        count = stop_all_agents()
+        click.echo(f"Stopped {count} agent(s).")
+        return
+
+    if not agent_id:
+        # Show running agents and ask
+        running = list_running_agents()
+        if not running:
+            click.echo("No agents running.")
+            return
+
+        click.echo("Running agents:")
+        for agent in running:
+            click.echo(f"  {agent['id']} (PID: {agent['pid']})")
+        click.echo()
+        click.echo("Specify an agent ID or use --all to stop all.")
+        return
+
+    from orchestrator.lib.agent_client import is_agent_running
+
+    if not is_agent_running(agent_id):
+        click.echo(f"Agent '{agent_id}' is not running.")
+        sys.exit(1)
+
+    if stop_agent(agent_id):
+        click.echo(f"Agent '{agent_id}' stopped.")
+    else:
+        click.echo(f"Failed to stop agent '{agent_id}'.")
+        sys.exit(1)
+
+
+@agents.command("running")
+@json_option
+def agents_running(use_json: bool) -> None:
+    """List running persistent agent servers."""
+    from orchestrator.lib.agent_client import list_running_agents
+
+    running = list_running_agents()
+
+    if use_json:
+        click.echo(json.dumps(running, indent=2))
+        return
+
+    if not running:
+        click.echo("No agents running.")
+        click.echo()
+        click.echo("Start an agent with: orchestrator agents start <name>")
+        return
+
+    click.echo(f"{'AGENT ID':<20} {'PID':<10} {'SOCKET'}")
+    click.echo("-" * 70)
+    for agent in running:
+        click.echo(f"{agent['id']:<20} {agent['pid'] or 'N/A':<10} {agent['socket']}")
+
+
+@agents.command("ping")
+@click.argument("agent_id")
+def agents_ping(agent_id: str) -> None:
+    """Test connectivity to a running agent."""
+    import asyncio
+    from orchestrator.lib.agent_client import AgentClient, AgentNotRunning
+
+    async def do_ping():
+        client = AgentClient(agent_id)
+        try:
+            await client.connect()
+            if await client.ping():
+                click.echo(f"Agent '{agent_id}' is responsive.")
+                return True
+            else:
+                click.echo(f"Agent '{agent_id}' did not respond.")
+                return False
+        except AgentNotRunning as e:
+            click.echo(f"Agent '{agent_id}' is not running: {e}")
+            return False
+        finally:
+            await client.close()
+
+    success = asyncio.run(do_ping())
+    sys.exit(0 if success else 1)
+
+
+@agents.command("test")
+@click.argument("agent_id")
+@click.argument("message")
+def agents_test(agent_id: str, message: str) -> None:
+    """Send a test message to a running agent.
+
+    Examples:
+
+        orchestrator agents test claude "Hello, how are you?"
+    """
+    import asyncio
+    from orchestrator.lib.agent_client import send_prompt, AgentNotRunning
+
+    async def do_test():
+        try:
+            def on_chunk(chunk: str) -> None:
+                click.echo(chunk, nl=False)
+
+            click.echo(f"Sending to '{agent_id}'...")
+            click.echo("-" * 40)
+
+            response = await send_prompt(agent_id, message, on_chunk=on_chunk)
+
+            click.echo()
+            click.echo("-" * 40)
+            click.echo(f"Response: {len(response)} chars")
+            return True
+
+        except AgentNotRunning as e:
+            click.echo(f"Error: {e}")
+            return False
+        except TimeoutError as e:
+            click.echo(f"Timeout: {e}")
+            return False
+
+    success = asyncio.run(do_test())
+    sys.exit(0 if success else 1)
+
+
 if __name__ == "__main__":
     cli()

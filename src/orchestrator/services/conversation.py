@@ -319,7 +319,51 @@ class ConversationExecutor:
         agent: ConversationAgent,
         prompt: str,
     ) -> str:
-        """Execute agent command and return output."""
+        """Execute agent command and return output.
+
+        Tries persistent agent first (via Unix socket), falls back to spawning.
+        """
+        # Check for persistent agent first
+        agent_id = agent.agent or agent.id  # Use settings reference or ID
+
+        try:
+            from orchestrator.lib.agent_client import is_agent_running, send_prompt
+
+            if is_agent_running(agent_id):
+                self.logger.info(
+                    "Using persistent agent",
+                    agent_id=agent_id,
+                )
+
+                # Get model for persistent agent
+                _, _, _, timeout, model = self._resolve_agent(agent)
+
+                # Build prompt with model if specified
+                effective_prompt = prompt
+                if model:
+                    effective_prompt = f"/model {model}\n{prompt}"
+
+                # Send via IPC
+                return await send_prompt(agent_id, effective_prompt, timeout=timeout)
+
+        except ImportError:
+            pass  # Agent client not available
+        except Exception as e:
+            self.logger.warning(
+                "Persistent agent failed, falling back to spawn",
+                agent_id=agent_id,
+                error=str(e),
+            )
+
+        # Fall back to spawning new process
+        return await self._execute_agent_spawn(agent, prompt)
+
+    async def _execute_agent_spawn(
+        self,
+        agent: ConversationAgent,
+        prompt: str,
+    ) -> str:
+        """Execute agent by spawning a new process."""
         global _current_process
 
         # Resolve agent configuration
