@@ -1,0 +1,45 @@
+# Example conversation workflow using agent references
+# AI agents discuss and design a solution together
+#
+# Prerequisites:
+#   1. Run: orchestrator agents init
+#   2. Configure agents in ~/.orchestrator/agents.yaml
+#   3. Set API keys (e.g., export ZAI_API_KEY=...)
+#
+# Run with: orchestrator converse examples/conversation-design.yaml
+
+name: api-design-discussion
+version: "1.0"
+mode: conversation
+description: AI team discusses API caching strategy
+
+agents:
+  # Reference agents from ~/.orchestrator/agents.yaml
+  - id: architect
+    agent: claude                    # <-- Reference by name
+    persona: "You are a senior software architect. Focus on system design, scalability, and maintainability. Consider trade-offs carefully."
+
+  - id: security
+    agent: glm                       # <-- Uses GLM via Z.AI
+    persona: "You are a security engineer. Focus on data protection, access control, and compliance. Identify potential vulnerabilities."
+
+topic: |
+  Design a caching strategy for our REST API. Consider:
+  - What should be cached (responses, sessions, computed data)?
+  - Cache invalidation approaches
+  - TTL policies for different data types
+  - Redis vs in-memory options
+  - Security implications of cached data
+
+  Work together to design a solution that balances performance,
+  security, and maintainability.
+
+max_rounds: 5
+turn_order: round_robin
+
+# Optional: include project files as context
+# context_files:
+#   - src/api/**/*.py
+#   - docs/architecture.md
+
+consensus_keyword: "AGREED:"

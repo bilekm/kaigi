@@ -20,6 +20,7 @@ from orchestrator.lib.errors import (
     workflow_locked,
 )
 from orchestrator.lib.logging import Logger, get_logger
+from orchestrator.lib.signals import signal_handler_context
 from orchestrator.models.execution import ExecutionRecord, ExecutionStatus, StepStatus
 from orchestrator.models.workflow import Workflow
 from orchestrator.services.store import WorkflowStore
@@ -95,11 +96,8 @@ async def _execute_workflow_async(
         )
         store.create_execution(workflow_id, execution)
 
-        # Set up signal handlers
-        original_sigterm = signal.signal(signal.SIGTERM, _handle_signal)
-        original_sigint = signal.signal(signal.SIGINT, _handle_signal)
-
-        try:
+        # Use context manager for signal handlers (restores on exit)
+        with signal_handler_context(_handle_signal):
             # Start execution
             execution.start()
             store.save_execution(workflow_id, execution)
@@ -195,11 +193,6 @@ async def _execute_workflow_async(
 
                 if not quiet and not use_json:
                     click.echo(f"Workflow completed in {total_duration:.1f}s")
-
-        finally:
-            # Restore signal handlers
-            signal.signal(signal.SIGTERM, original_sigterm)
-            signal.signal(signal.SIGINT, original_sigint)
 
         return _format_execution_result(execution)
 
@@ -426,11 +419,8 @@ async def _retry_workflow_async(
 
         store.create_execution(workflow_id, execution)
 
-        # Set up signal handlers
-        original_sigterm = signal.signal(signal.SIGTERM, _handle_signal)
-        original_sigint = signal.signal(signal.SIGINT, _handle_signal)
-
-        try:
+        # Use context manager for signal handlers (restores on exit)
+        with signal_handler_context(_handle_signal):
             execution.start()
             execution.current_step_index = resume_index
             store.save_execution(workflow_id, execution)
@@ -533,10 +523,6 @@ async def _retry_workflow_async(
 
                 if not use_json:
                     click.echo(f"Workflow completed in {total_duration:.1f}s")
-
-        finally:
-            signal.signal(signal.SIGTERM, original_sigterm)
-            signal.signal(signal.SIGINT, original_sigint)
 
         return _format_execution_result(execution)
 

@@ -1,0 +1,38 @@
+# Conversation workflow: AI agents analyze the orchestrator codebase
+# Uses Claude and Copilot (GLM requires different integration)
+#
+# Run with: orchestrator converse examples/analyze-codebase-2agents.yaml
+
+name: codebase-analysis-2
+version: "1.0"
+mode: conversation
+description: AI team analyzes the orchestrator codebase
+
+agents:
+  - id: architect
+    agent: claude
+    persona: "You are a senior software architect. Analyze code structure, design patterns, and architectural decisions. Focus on maintainability and extensibility."
+
+  - id: developer
+    agent: copilot
+    persona: "You are a pragmatic developer and code reviewer. Look for potential bugs, edge cases, error handling issues. Focus on implementation details and suggest improvements."
+
+topic: |
+  Analyze the orchestrator codebase - a CLI tool for coordinating AI agent workflows.
+
+  Review the code and discuss:
+  1. Overall architecture and design patterns used
+  2. Code quality and potential improvements
+  3. Error handling and edge cases
+  4. Any bugs or issues you notice
+  5. Suggestions for future enhancements
+
+  Work together to provide a comprehensive analysis.
+
+max_rounds: 3
+turn_order: round_robin
+
+context_files:
+  - src/orchestrator/**/*.py
+
+consensus_keyword: "AGREED:"

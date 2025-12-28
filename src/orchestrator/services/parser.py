@@ -9,17 +9,19 @@ import yaml
 from pydantic import ValidationError
 
 from orchestrator.lib.errors import workflow_invalid
-from orchestrator.models.workflow import Workflow
+from orchestrator.models.workflow import ConversationWorkflow, Workflow
 
 
-def parse_workflow_file(path: Path) -> Workflow:
+def parse_workflow_file(path: Path) -> Workflow | ConversationWorkflow:
     """Parse a workflow from a YAML file.
+
+    Detects mode and returns appropriate workflow type.
 
     Args:
         path: Path to the workflow YAML file.
 
     Returns:
-        Parsed and validated Workflow object.
+        Parsed and validated Workflow or ConversationWorkflow object.
 
     Raises:
         OrchestratorError: If file cannot be read or workflow is invalid.
@@ -35,15 +37,19 @@ def parse_workflow_file(path: Path) -> Workflow:
     return parse_workflow_yaml(content, source=str(path))
 
 
-def parse_workflow_yaml(content: str, source: str = "<string>") -> Workflow:
+def parse_workflow_yaml(
+    content: str, source: str = "<string>"
+) -> Workflow | ConversationWorkflow:
     """Parse a workflow from YAML content.
+
+    Detects mode and returns appropriate workflow type.
 
     Args:
         content: YAML content string.
         source: Source identifier for error messages.
 
     Returns:
-        Parsed and validated Workflow object.
+        Parsed and validated Workflow or ConversationWorkflow object.
 
     Raises:
         OrchestratorError: If YAML is invalid or workflow validation fails.
@@ -54,24 +60,40 @@ def parse_workflow_yaml(content: str, source: str = "<string>") -> Workflow:
         raise workflow_invalid(f"Invalid YAML in {source}: {e}")
 
     if not isinstance(data, dict):
-        raise workflow_invalid(f"Workflow must be a YAML mapping, got: {type(data).__name__}")
+        raise workflow_invalid(
+            f"Workflow must be a YAML mapping, got: {type(data).__name__}"
+        )
 
     return parse_workflow_dict(data, source=source)
 
 
-def parse_workflow_dict(data: dict[str, Any], source: str = "<dict>") -> Workflow:
+def parse_workflow_dict(
+    data: dict[str, Any], source: str = "<dict>"
+) -> Workflow | ConversationWorkflow:
     """Parse a workflow from a dictionary.
+
+    Detects mode and returns appropriate workflow type.
 
     Args:
         data: Workflow data dictionary.
         source: Source identifier for error messages.
 
     Returns:
-        Parsed and validated Workflow object.
+        Parsed and validated Workflow or ConversationWorkflow object.
 
     Raises:
         OrchestratorError: If workflow validation fails.
     """
+    mode = data.get("mode", "pipeline")
+
+    if mode == "conversation":
+        return _parse_conversation_workflow(data, source)
+    else:
+        return _parse_pipeline_workflow(data, source)
+
+
+def _parse_pipeline_workflow(data: dict[str, Any], source: str) -> Workflow:
+    """Parse a pipeline-mode workflow."""
     try:
         return Workflow.model_validate(data)
     except ValidationError as e:
@@ -83,6 +105,25 @@ def parse_workflow_dict(data: dict[str, Any], source: str = "<dict>") -> Workflo
         error_list = "\n".join(errors)
         raise workflow_invalid(
             f"Validation errors in {source}:\n{error_list}",
+            details={"validation_errors": e.errors()},
+        )
+
+
+def _parse_conversation_workflow(
+    data: dict[str, Any], source: str
+) -> ConversationWorkflow:
+    """Parse a conversation-mode workflow."""
+    try:
+        return ConversationWorkflow.model_validate(data)
+    except ValidationError as e:
+        errors = []
+        for error in e.errors():
+            loc = ".".join(str(x) for x in error["loc"])
+            msg = error["msg"]
+            errors.append(f"  - {loc}: {msg}")
+        error_list = "\n".join(errors)
+        raise workflow_invalid(
+            f"Conversation workflow validation errors in {source}:\n{error_list}",
             details={"validation_errors": e.errors()},
         )
 

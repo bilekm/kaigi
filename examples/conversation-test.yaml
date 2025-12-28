@@ -1,0 +1,23 @@
+# Test conversation workflow using echo commands
+# Use this to test conversation mode without real AI agents
+# Run with: orchestrator converse examples/conversation-test.yaml
+
+name: echo-conversation
+version: "1.0"
+mode: conversation
+description: Test conversation with echo commands
+
+agents:
+  - id: agent-a
+    command: echo
+    args: ["Agent A says: I propose we use approach X. AGREED: Use approach X for best results."]
+    timeout: 5
+
+  - id: agent-b
+    command: echo
+    args: ["Agent B says: That makes sense. AGREED: Use approach X for best results."]
+    timeout: 5
+
+topic: "Test the conversation flow"
+max_rounds: 3
+consensus_keyword: "AGREED:"

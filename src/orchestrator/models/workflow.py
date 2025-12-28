@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -89,4 +89,115 @@ class Workflow(BaseModel):
         for i, step in enumerate(self.steps):
             if step.id == step_id:
                 return i
+        return None
+
+
+# === Conversation Mode Models ===
+
+
+class ConversationAgent(BaseModel):
+    """An AI agent participating in a conversation.
+
+    Can be configured inline (command + args) or by reference (agent name from settings).
+    """
+
+    id: Annotated[str, Field(min_length=1, max_length=50)]
+
+    # Reference to configured agent (from agents.yaml)
+    agent: str | None = None
+
+    # Inline configuration (used if 'agent' not specified)
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    timeout: int = Field(default=DEFAULT_TIMEOUT, ge=MIN_TIMEOUT, le=MAX_TIMEOUT)
+
+    # Model selection (e.g., "gemini-3-pro-preview", "claude-sonnet-4-5")
+    model: str | None = None
+
+    # Agent personality for the conversation
+    persona: str = ""
+
+    @field_validator("id")
+    @classmethod
+    def validate_agent_id(cls, v: str) -> str:
+        """Validate agent ID format."""
+        if not STEP_ID_PATTERN.match(v):
+            raise ValueError(
+                f"Agent ID must be 1-50 alphanumeric characters with hyphens/underscores, got: {v}"
+            )
+        return v
+
+    def is_reference(self) -> bool:
+        """Check if this agent is a reference to settings."""
+        return self.agent is not None
+
+    def get_resolved_command(self) -> str:
+        """Get the command, resolving from settings if needed."""
+        if self.command:
+            return self.command
+        raise ValueError(f"Agent '{self.id}' has no command configured")
+
+    def get_resolved_args(self) -> list[str]:
+        """Get the args, resolving from settings if needed."""
+        return self.args
+
+    def get_resolved_env(self) -> dict[str, str]:
+        """Get the env, resolving from settings if needed."""
+        return self.env
+
+
+class ConversationWorkflow(BaseModel):
+    """A conversation-mode workflow where agents discuss a topic."""
+
+    name: Annotated[str, Field(min_length=1, max_length=100)]
+    version: str = "1.0"
+    mode: Literal["conversation"] = "conversation"
+    description: str = ""
+
+    agents: Annotated[list[ConversationAgent], Field(min_length=2)]
+    topic: Annotated[str, Field(min_length=1)]  # The discussion topic/task
+
+    max_rounds: int = Field(default=10, ge=1, le=100)
+    turn_order: Literal["round_robin", "flexible"] = "round_robin"
+    context_files: list[str] = Field(default_factory=list)  # Glob patterns
+
+    consensus_keyword: str = "AGREED:"  # How agents signal agreement
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        """Validate workflow name format."""
+        if not NAME_PATTERN.match(v):
+            raise ValueError(
+                f"Workflow name must be 1-100 alphanumeric characters with hyphens/underscores, "
+                f"got: {v}"
+            )
+        return v
+
+    @field_validator("version")
+    @classmethod
+    def validate_version(cls, v: str) -> str:
+        """Validate version format."""
+        if v not in ("1.0",):
+            raise ValueError(f"Unsupported workflow version: {v}. Supported: 1.0")
+        return v
+
+    @field_validator("agents")
+    @classmethod
+    def validate_unique_agent_ids(
+        cls, agents: list[ConversationAgent]
+    ) -> list[ConversationAgent]:
+        """Ensure all agent IDs are unique."""
+        ids = [a.id for a in agents]
+        duplicates = [id for id in ids if ids.count(id) > 1]
+        if duplicates:
+            raise ValueError(f"Duplicate agent IDs found: {set(duplicates)}")
+        return agents
+
+    def get_agent(self, agent_id: str) -> ConversationAgent | None:
+        """Get an agent by ID."""
+        for agent in self.agents:
+            if agent.id == agent_id:
+                return agent
         return None
