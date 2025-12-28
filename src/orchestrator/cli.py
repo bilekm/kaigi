@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -569,11 +570,17 @@ def cleanup(use_json: bool, dry_run: bool, force: bool) -> None:
 @click.option(
     "--non-interactive", is_flag=True, help="Run without user prompts (auto-continue)"
 )
-def converse(workflow_file: Path, use_json: bool, non_interactive: bool) -> None:
+@click.option(
+    "--no-auto-start", is_flag=True, help="Don't auto-start missing agents"
+)
+def converse(workflow_file: Path, use_json: bool, non_interactive: bool, no_auto_start: bool) -> None:
     """Start a conversation between AI agents.
 
     The workflow file must have mode: conversation.
     Agents will discuss the topic until consensus is reached or max_rounds.
+
+    By default, any agents not already running will be started automatically
+    in the background. Use --no-auto-start to disable this behavior.
 
     In interactive mode (default), you can:
     - Press Enter to continue to next round
@@ -593,6 +600,10 @@ def converse(workflow_file: Path, use_json: bool, non_interactive: bool) -> None
             raise workflow_invalid(
                 "Workflow must have mode: conversation. Use 'orchestrator run' for pipeline workflows."
             )
+
+        # Auto-start missing agents
+        if not no_auto_start:
+            _auto_start_agents(workflow, use_json)
 
         yaml_content = workflow_file.read_text()
         result = execute_conversation(
@@ -620,6 +631,84 @@ def converse(workflow_file: Path, use_json: bool, non_interactive: bool) -> None
             sys.exit(3)
         else:
             sys.exit(1)
+
+
+def _auto_start_agents(workflow, use_json: bool) -> None:
+    """Auto-start any agents that aren't already running."""
+    from orchestrator.lib.agent_client import is_agent_running
+    from orchestrator.lib.settings import get_agent_config
+    from orchestrator.lib.agent_server import get_socket_path
+    import os
+    import time
+
+    started = []
+
+    for agent in workflow.agents:
+        agent_id = agent.agent or agent.id
+
+        if is_agent_running(agent_id):
+            continue
+
+        # Get agent config
+        config = get_agent_config(agent_id)
+        if not config:
+            if not use_json:
+                click.echo(f"Warning: Agent '{agent_id}' not found in settings, will spawn on demand")
+            continue
+
+        if not use_json:
+            click.echo(f"Starting agent '{agent_id}' in background...")
+
+        # Start in background (double-fork daemon)
+        pid = os.fork()
+        if pid == 0:
+            os.setsid()
+            pid2 = os.fork()
+            if pid2 == 0:
+                # Grandchild - run the server
+                from orchestrator.lib.agent_server import run_agent_server
+
+                sys.stdin.close()
+                with open("/dev/null", "r") as null:
+                    os.dup2(null.fileno(), 0)
+
+                log_path = get_socket_path(agent_id).with_suffix(".log")
+                with open(log_path, "w") as log:
+                    os.dup2(log.fileno(), 1)
+                    os.dup2(log.fileno(), 2)
+
+                run_agent_server(agent_id, config.command, env=config.env)
+                sys.exit(0)
+            else:
+                os._exit(0)
+        else:
+            os.waitpid(pid, 0)
+            started.append(agent_id)
+
+    # Wait for agents to be ready
+    if started:
+        if not use_json:
+            click.echo("Waiting for agents to initialize...")
+
+        max_wait = 30  # seconds
+        start_time = time.time()
+
+        while time.time() - start_time < max_wait:
+            all_ready = True
+            for agent_id in started:
+                if not is_agent_running(agent_id):
+                    all_ready = False
+                    break
+
+            if all_ready:
+                break
+
+            time.sleep(0.5)
+
+        if not use_json:
+            ready_count = sum(1 for aid in started if is_agent_running(aid))
+            click.echo(f"Started {ready_count}/{len(started)} agents")
+            click.echo()
 
 
 @cli.command()
@@ -950,11 +1039,65 @@ def agents_show(name: str, use_json: bool) -> None:
 # === Persistent Agent Commands ===
 
 
+def _detect_terminal_emulator() -> list[str] | None:
+    """Detect available terminal emulator."""
+    import shutil
+
+    # Common terminal emulators in order of preference
+    terminals = [
+        (["gnome-terminal", "--"], "gnome-terminal"),
+        (["konsole", "-e"], "konsole"),
+        (["xfce4-terminal", "-e"], "xfce4-terminal"),
+        (["xterm", "-e"], "xterm"),
+        (["terminator", "-e"], "terminator"),
+        (["alacritty", "-e"], "alacritty"),
+        (["kitty", "--"], "kitty"),
+    ]
+
+    for cmd, name in terminals:
+        if shutil.which(name):
+            return cmd
+
+    return None
+
+
+def _start_agent_in_terminal(agent_id: str, command: str, env: dict[str, str]) -> bool:
+    """Start an agent in a new visible terminal window."""
+    import subprocess
+    import shlex
+
+    terminal_cmd = _detect_terminal_emulator()
+    if not terminal_cmd:
+        click.echo("Error: No terminal emulator found.")
+        click.echo("Install gnome-terminal, konsole, xterm, or similar.")
+        return False
+
+    # Build the command to run in the terminal
+    # We need to run the orchestrator agents start command in foreground
+    agent_cmd = f"orchestrator agents start {agent_id}"
+
+    # Build full command
+    full_cmd = terminal_cmd + [agent_cmd]
+
+    try:
+        # Start the terminal (it will run independently)
+        subprocess.Popen(
+            full_cmd,
+            env={**dict(os.environ), **env},
+            start_new_session=True,
+        )
+        return True
+    except Exception as e:
+        click.echo(f"Error starting terminal: {e}")
+        return False
+
+
 @agents.command("start")
 @click.argument("name")
 @click.option("--id", "agent_id", help="Custom agent ID (default: same as name)")
 @click.option("--background", "-b", is_flag=True, help="Run in background (daemonize)")
-def agents_start(name: str, agent_id: str | None, background: bool) -> None:
+@click.option("--terminal", "-t", is_flag=True, help="Open in new visible terminal window")
+def agents_start(name: str, agent_id: str | None, background: bool, terminal: bool) -> None:
     """Start a persistent agent server.
 
     Starts the agent in interactive mode and exposes it via Unix socket.
@@ -962,11 +1105,14 @@ def agents_start(name: str, agent_id: str | None, background: bool) -> None:
 
     Examples:
 
-        # Start Claude agent in foreground
+        # Start Claude agent in foreground (current terminal)
         orchestrator agents start claude
 
-        # Start in background
+        # Start in background (hidden)
         orchestrator agents start claude --background
+
+        # Start in new visible terminal window
+        orchestrator agents start claude --terminal
 
         # Start with custom ID
         orchestrator agents start claude --id claude-1
@@ -992,7 +1138,23 @@ def agents_start(name: str, agent_id: str | None, background: bool) -> None:
     command = config.command
     env = config.env
 
-    if background:
+    if terminal:
+        # Open in new terminal window
+        click.echo(f"Opening terminal for agent '{agent_id}'...")
+
+        if _start_agent_in_terminal(agent_id, command, env):
+            click.echo(f"Terminal opened for '{agent_id}'")
+            # Wait a moment and check if it started
+            import time
+            time.sleep(3)
+            if is_agent_running(agent_id):
+                click.echo(f"Agent '{agent_id}' is running.")
+            else:
+                click.echo(f"Agent may still be initializing. Check the terminal window.")
+        else:
+            sys.exit(1)
+
+    elif background:
         # Daemonize
         import os
         import subprocess
@@ -1055,6 +1217,142 @@ def agents_start(name: str, agent_id: str | None, background: bool) -> None:
             run_agent_server(agent_id, command, env=env)
         except KeyboardInterrupt:
             click.echo("\nAgent stopped.")
+
+
+@agents.command("start-all")
+@click.argument("workflow_file", type=click.Path(exists=True, path_type=Path), required=False)
+@click.option("--background", "-b", is_flag=True, help="Run all in background (default)")
+@click.option("--terminal", "-t", is_flag=True, help="Open each agent in visible terminal")
+def agents_start_all(workflow_file: Path | None, background: bool, terminal: bool) -> None:
+    """Start all agents defined in a workflow file.
+
+    If no workflow file is specified, uses .orchestrator/workflow.yaml.
+
+    Examples:
+
+        # Start all agents in background (default)
+        orchestrator agents start-all
+
+        # Start all agents in visible terminals
+        orchestrator agents start-all --terminal
+
+        # Start agents from specific workflow
+        orchestrator agents start-all examples/my-workflow.yaml --terminal
+    """
+    from orchestrator.services.parser import parse_workflow_file
+    from orchestrator.models.workflow import ConversationWorkflow
+    from orchestrator.lib.settings import get_agent_config
+    from orchestrator.lib.agent_client import is_agent_running
+    from orchestrator.lib.agent_server import get_socket_path
+    import time
+
+    # Default to project config
+    if workflow_file is None:
+        workflow_file = Path.cwd() / ".orchestrator" / "workflow.yaml"
+        if not workflow_file.exists():
+            click.echo("No workflow file specified and .orchestrator/workflow.yaml not found.")
+            click.echo("Usage: orchestrator agents start-all <workflow-file>")
+            sys.exit(1)
+
+    try:
+        workflow = parse_workflow_file(workflow_file)
+    except Exception as e:
+        click.echo(f"Error parsing workflow: {e}")
+        sys.exit(1)
+
+    if not isinstance(workflow, ConversationWorkflow):
+        click.echo("Workflow must be a conversation workflow (mode: conversation)")
+        sys.exit(1)
+
+    click.echo(f"Workflow: {workflow.name}")
+    click.echo(f"Agents: {', '.join(a.agent or a.id for a in workflow.agents)}")
+    click.echo()
+
+    started = []
+    skipped = []
+    failed = []
+
+    for agent in workflow.agents:
+        agent_id = agent.agent or agent.id
+
+        if is_agent_running(agent_id):
+            click.echo(f"  [{agent_id}] Already running")
+            skipped.append(agent_id)
+            continue
+
+        config = get_agent_config(agent_id)
+        if not config:
+            click.echo(f"  [{agent_id}] Not found in settings - skipped")
+            failed.append(agent_id)
+            continue
+
+        if terminal:
+            click.echo(f"  [{agent_id}] Opening terminal...")
+            if _start_agent_in_terminal(agent_id, config.command, config.env):
+                started.append(agent_id)
+            else:
+                failed.append(agent_id)
+        else:
+            # Background mode (default)
+            click.echo(f"  [{agent_id}] Starting in background...")
+
+            pid = os.fork()
+            if pid == 0:
+                os.setsid()
+                pid2 = os.fork()
+                if pid2 == 0:
+                    from orchestrator.lib.agent_server import run_agent_server
+
+                    sys.stdin.close()
+                    with open("/dev/null", "r") as null:
+                        os.dup2(null.fileno(), 0)
+
+                    log_path = get_socket_path(agent_id).with_suffix(".log")
+                    with open(log_path, "w") as log:
+                        os.dup2(log.fileno(), 1)
+                        os.dup2(log.fileno(), 2)
+
+                    run_agent_server(agent_id, config.command, env=config.env)
+                    sys.exit(0)
+                else:
+                    os._exit(0)
+            else:
+                os.waitpid(pid, 0)
+                started.append(agent_id)
+
+    # Wait for agents to be ready
+    if started and not terminal:
+        click.echo()
+        click.echo("Waiting for agents to initialize...")
+
+        max_wait = 30
+        start_time = time.time()
+
+        while time.time() - start_time < max_wait:
+            ready = sum(1 for aid in started if is_agent_running(aid))
+            if ready == len(started):
+                break
+            time.sleep(0.5)
+
+        click.echo()
+
+    # Summary
+    click.echo("Summary:")
+    if started:
+        ready_count = sum(1 for aid in started if is_agent_running(aid))
+        click.echo(f"  Started: {ready_count}/{len(started)}")
+    if skipped:
+        click.echo(f"  Already running: {len(skipped)}")
+    if failed:
+        click.echo(f"  Failed: {len(failed)}")
+
+    # Show running agents
+    click.echo()
+    click.echo("Running agents:")
+    for agent in workflow.agents:
+        agent_id = agent.agent or agent.id
+        status = "running" if is_agent_running(agent_id) else "not running"
+        click.echo(f"  {agent_id}: {status}")
 
 
 @agents.command("stop")
