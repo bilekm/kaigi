@@ -22,7 +22,14 @@ from orchestrator.lib.errors import (
     workflow_locked,
 )
 from orchestrator.lib.logging import get_logger
-from orchestrator.lib.prompts import build_agent_prompt, build_system_message, format_context_files
+from orchestrator.lib.prompts import (
+    build_lead_prompt,
+    build_orchestrated_system_message,
+    build_team_member_prompt,
+    build_team_prompt,
+    build_team_system_message,
+    format_context_files,
+)
 from orchestrator.lib.settings import get_agent_config
 from orchestrator.lib.signals import signal_handler_context
 from orchestrator.models.execution import (
@@ -101,10 +108,15 @@ class ConversationExecutor:
 
             # Add system message with topic
             agent_ids = [a.id for a in self.workflow.agents]
-            record.add_message(
-                MessageRole.SYSTEM,
-                build_system_message(self.workflow.topic, agent_ids),
-            )
+            if self.workflow.collaboration == "orchestrated":
+                lead_id = self.workflow.lead or ""
+                team_ids = [a.id for a in self.workflow.get_team_agents()]
+                system_msg = build_orchestrated_system_message(
+                    self.workflow.topic, lead_id, team_ids
+                )
+            else:
+                system_msg = build_team_system_message(self.workflow.topic, agent_ids)
+            record.add_message(MessageRole.SYSTEM, system_msg)
 
             self.store.create_conversation(workflow_id, record)
 
@@ -123,7 +135,13 @@ class ConversationExecutor:
                 if self.interactive:
                     click.echo(f"Starting conversation: {self.workflow.name}")
                     click.echo(f"Topic: {self.workflow.topic[:100]}...")
-                    click.echo(f"Agents: {', '.join(agent_ids)}")
+                    if self.workflow.collaboration == "orchestrated":
+                        click.echo(f"Mode: Orchestrated (Lead: {self.workflow.lead})")
+                        team_ids = [a.id for a in self.workflow.get_team_agents()]
+                        click.echo(f"Team: {', '.join(team_ids)}")
+                    else:
+                        click.echo(f"Mode: Team collaboration")
+                        click.echo(f"Agents: {', '.join(agent_ids)}")
                     click.echo()
 
                 # Main loop
@@ -138,16 +156,26 @@ class ConversationExecutor:
                     if self.interactive:
                         click.echo(f"--- Round {record.current_round} ---")
 
+                    # Determine turn order based on collaboration mode
+                    if self.workflow.collaboration == "orchestrated":
+                        # Orchestrated: lead speaks first, then team members
+                        lead = self.workflow.get_lead_agent()
+                        team = self.workflow.get_team_agents()
+                        turn_agents = [lead] + team if lead else team
+                    else:
+                        # Team mode: round-robin all agents
+                        turn_agents = self.workflow.agents
+
                     # Each agent takes a turn
-                    for agent in self.workflow.agents:
-                        if _cancelled:
+                    for agent in turn_agents:
+                        if _cancelled or agent is None:
                             break
 
                         await self._agent_turn(record, agent, workflow_id)
                         self.store.save_conversation(workflow_id, record)
 
-                        # Check for consensus after each turn
-                        if self._check_consensus(record):
+                        # Check for consensus/decision after each turn
+                        if self._check_consensus(record, agent):
                             record.consensus_status = ConsensusStatus.AGREED
                             self._extract_consensus_content(record)
                             break
@@ -352,14 +380,38 @@ class ConversationExecutor:
         context_str = format_context_files(record.context_files_content)
         history = record.get_conversation_history()
 
-        return build_agent_prompt(
-            agent_id=agent.id,
-            persona=agent.persona,
-            topic=self.workflow.topic,
-            consensus_keyword=self.workflow.consensus_keyword,
-            context_files=context_str,
-            history=history,
-        )
+        if self.workflow.collaboration == "orchestrated":
+            # Orchestrated mode: different prompts for lead vs team members
+            if agent.id == self.workflow.lead:
+                team_list = ", ".join(a.id for a in self.workflow.get_team_agents())
+                return build_lead_prompt(
+                    agent_id=agent.id,
+                    persona=agent.persona,
+                    topic=self.workflow.topic,
+                    consensus_keyword=self.workflow.consensus_keyword,
+                    context_files=context_str,
+                    history=history,
+                    team_list=team_list,
+                )
+            else:
+                return build_team_member_prompt(
+                    agent_id=agent.id,
+                    persona=agent.persona,
+                    topic=self.workflow.topic,
+                    lead_id=self.workflow.lead or "",
+                    context_files=context_str,
+                    history=history,
+                )
+        else:
+            # Team mode: equal collaboration
+            return build_team_prompt(
+                agent_id=agent.id,
+                persona=agent.persona,
+                topic=self.workflow.topic,
+                consensus_keyword=self.workflow.consensus_keyword,
+                context_files=context_str,
+                history=history,
+            )
 
     # Context file limits to prevent DoS
     MAX_CONTEXT_FILES = 50
@@ -428,12 +480,30 @@ class ConversationExecutor:
 
         return files
 
-    def _check_consensus(self, record: ConversationRecord) -> bool:
-        """Check if all agents have agreed."""
-        return record.check_consensus(
-            [a.id for a in self.workflow.agents],
-            self.workflow.consensus_keyword,
-        )
+    def _check_consensus(
+        self,
+        record: ConversationRecord,
+        current_agent: ConversationAgent | None = None,
+    ) -> bool:
+        """Check if consensus/decision has been reached.
+
+        - Team mode: All agents must include the consensus keyword
+        - Orchestrated mode: Only the lead's decision matters
+        """
+        if self.workflow.collaboration == "orchestrated":
+            # In orchestrated mode, only check if lead has made a decision
+            if current_agent and current_agent.id == self.workflow.lead:
+                # Check if lead's last message contains consensus keyword
+                for msg in reversed(record.messages):
+                    if msg.agent_id == self.workflow.lead:
+                        return self.workflow.consensus_keyword in msg.content
+            return False
+        else:
+            # Team mode: all agents must agree
+            return record.check_consensus(
+                [a.id for a in self.workflow.agents],
+                self.workflow.consensus_keyword,
+            )
 
     def _extract_consensus_content(self, record: ConversationRecord) -> None:
         """Extract the consensus content from messages."""

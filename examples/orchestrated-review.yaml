@@ -1,0 +1,56 @@
+# Orchestrated workflow: Lead agent coordinates code review
+#
+# In orchestrated mode, one agent (the lead) analyzes the task,
+# assigns work to team members, and makes the final decision.
+#
+# Run with: orchestrator converse examples/orchestrated-review.yaml
+
+name: orchestrated-code-review
+version: "1.0"
+mode: conversation
+description: Lead architect coordinates team for code review
+
+# Orchestrated mode: lead assigns tasks, makes final decisions
+collaboration: orchestrated
+lead: architect
+
+agents:
+  - id: architect
+    agent: claude
+    persona: |
+      You are the LEAD architect coordinating this code review.
+      Analyze the code, identify areas that need review, and assign
+      specific review tasks to your team members. Make the final
+      decision on code quality and recommendations.
+
+  - id: security
+    agent: copilot
+    persona: |
+      You are a security specialist. When assigned tasks by the lead,
+      focus on security vulnerabilities, authentication issues,
+      input validation, and potential attack vectors.
+
+  - id: performance
+    agent: claude
+    persona: |
+      You are a performance engineer. When assigned tasks by the lead,
+      focus on algorithmic efficiency, memory usage, I/O patterns,
+      and potential bottlenecks.
+
+topic: |
+  Review the orchestrator codebase for production readiness.
+
+  Lead architect: Analyze the code structure and delegate specific
+  review tasks to your team members. Use "ASSIGN @agent-id: task"
+  to delegate work.
+
+  When you've gathered enough feedback and are ready to make a
+  final decision, use "AGREED:" followed by your recommendations.
+
+max_rounds: 5
+turn_order: round_robin
+
+context_files:
+  - src/orchestrator/**/*.py
+
+consensus_keyword: "AGREED:"

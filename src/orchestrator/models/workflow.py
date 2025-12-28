@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # Validation patterns
@@ -158,6 +158,12 @@ class ConversationWorkflow(BaseModel):
     agents: Annotated[list[ConversationAgent], Field(min_length=2)]
     topic: Annotated[str, Field(min_length=1)]  # The discussion topic/task
 
+    # Collaboration mode
+    # - "team": All agents equal, round-robin, consensus-based (default)
+    # - "orchestrated": One lead agent assigns tasks to others
+    collaboration: Literal["team", "orchestrated"] = "team"
+    lead: str | None = None  # Agent ID of lead (required for orchestrated)
+
     max_rounds: int = Field(default=10, ge=1, le=100)
     turn_order: Literal["round_robin", "flexible"] = "round_robin"
     context_files: list[str] = Field(default_factory=list)  # Glob patterns
@@ -195,9 +201,38 @@ class ConversationWorkflow(BaseModel):
             raise ValueError(f"Duplicate agent IDs found: {set(duplicates)}")
         return agents
 
+    @model_validator(mode="after")
+    def validate_lead_agent(self) -> Self:
+        """Validate lead agent for orchestrated mode."""
+        if self.collaboration == "orchestrated":
+            if not self.lead:
+                raise ValueError(
+                    "Lead agent must be specified for orchestrated collaboration. "
+                    "Add 'lead: <agent-id>' to your workflow."
+                )
+            agent_ids = [a.id for a in self.agents]
+            if self.lead not in agent_ids:
+                raise ValueError(
+                    f"Lead agent '{self.lead}' not found. "
+                    f"Available agents: {', '.join(agent_ids)}"
+                )
+        return self
+
     def get_agent(self, agent_id: str) -> ConversationAgent | None:
         """Get an agent by ID."""
         for agent in self.agents:
             if agent.id == agent_id:
                 return agent
         return None
+
+    def get_lead_agent(self) -> ConversationAgent | None:
+        """Get the lead agent for orchestrated mode."""
+        if self.lead:
+            return self.get_agent(self.lead)
+        return None
+
+    def get_team_agents(self) -> list[ConversationAgent]:
+        """Get non-lead agents (for orchestrated mode)."""
+        if self.collaboration == "orchestrated" and self.lead:
+            return [a for a in self.agents if a.id != self.lead]
+        return self.agents
