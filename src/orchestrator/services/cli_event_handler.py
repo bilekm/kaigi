@@ -29,6 +29,27 @@ class CliEventHandler(ConversationEventHandler):
         self.max_output_lines = max_output_lines
         self._setup_readline()
 
+    # Color helper methods
+    def _cmd(self, text: str) -> str:
+        """Format command text in bright yellow."""
+        return click.style(text, fg="bright_yellow")
+
+    def _agent(self, text: str) -> str:
+        """Format agent name in green."""
+        return click.style(text, fg="green")
+
+    def _error(self, text: str) -> str:
+        """Format error text in red."""
+        return click.style(text, fg="red")
+
+    def _round(self, text: str) -> str:
+        """Format round number in cyan."""
+        return click.style(text, fg="cyan")
+
+    def _consensus(self, text: str) -> str:
+        """Format consensus text in green bold."""
+        return click.style(text, fg="green", bold=True)
+
     def _setup_readline(self) -> None:
         """Configure readline for history and tab completion."""
         try:
@@ -93,22 +114,22 @@ class CliEventHandler(ConversationEventHandler):
         click.echo(f"Starting conversation: {workflow_name}")
         click.echo(f"Topic: {topic[:100]}...")
         if collaboration == "orchestrated":
-            click.echo(f"Mode: Orchestrated (Lead: {lead})")
+            click.echo(f"Mode: Orchestrated (Lead: {self._agent(lead or '')})")
             # Filter out lead from agents list for display
             team = [a for a in agents if a != lead]
-            click.echo(f"Team: {', '.join(team)}")
+            click.echo(f"Team: {', '.join(self._agent(a) for a in team)}")
         else:
             click.echo(f"Mode: Team collaboration")
-            click.echo(f"Agents: {', '.join(agents)}")
+            click.echo(f"Agents: {', '.join(self._agent(a) for a in agents)}")
         click.echo()
 
     def on_round_start(self, round_num: int) -> None:
         """Display round header."""
-        click.echo(f"--- Round {round_num} ---")
+        click.echo(f"--- Round {self._round(str(round_num))} ---")
 
     def on_agent_turn_start(self, agent_id: str) -> None:
         """Show agent is thinking."""
-        click.echo(f"  [{agent_id}] thinking...", nl=False)
+        click.echo(f"  [{self._agent(agent_id)}] thinking...", nl=False)
 
     def on_agent_turn_complete(
         self,
@@ -142,17 +163,17 @@ class CliEventHandler(ConversationEventHandler):
         error: str,
     ) -> None:
         """Show agent error."""
-        click.echo(f" ERROR: {error}")
+        click.echo(f" {self._error('ERROR')}: {error}")
 
     def on_consensus_reached(self, content: str) -> None:
         """Display consensus banner."""
         click.echo()
-        click.echo("=" * 50)
-        click.echo("CONSENSUS REACHED")
-        click.echo("=" * 50)
+        click.secho("=" * 50, fg="green")
+        click.secho("CONSENSUS REACHED", fg="green", bold=True)
+        click.secho("=" * 50, fg="green")
         if content:
             click.echo(content)
-        click.echo("=" * 50)
+        click.secho("=" * 50, fg="green")
         click.echo("[Type 'approve' to accept, or provide feedback to continue]")
 
     async def prompt_user_approval(self, content: str) -> bool:
@@ -169,9 +190,9 @@ class CliEventHandler(ConversationEventHandler):
         from orchestrator.lib.agent_client import list_running_agents
 
         click.echo(f"Starting conversation: {workflow_name}")
-        click.echo(f"Agents: {', '.join(agents)}")
+        click.echo(f"Agents: {', '.join(self._agent(a) for a in agents)}")
         click.echo()
-        click.echo("Enter topic/prompt (/help for commands, 'quit' to exit):")
+        click.echo(f"Enter topic/prompt ({self._cmd('/help')} for commands, 'quit' to exit):")
 
         while True:
             topic = await self._get_input("> ")
@@ -186,7 +207,7 @@ class CliEventHandler(ConversationEventHandler):
                 self._show_running_agents()
                 continue
             if topic.startswith("/"):
-                click.echo(f"Unknown command: {topic}. Type /help for available commands.")
+                click.echo(f"Unknown command: {self._cmd(topic)}. Type {self._cmd('/help')} for available commands.")
                 continue
             if topic:
                 return topic
@@ -197,9 +218,9 @@ class CliEventHandler(ConversationEventHandler):
         """Show help for topic prompt."""
         click.echo()
         click.echo("Available commands:")
-        click.echo("  /agents    Show running agent servers")
-        click.echo("  /help      Show this help")
-        click.echo("  /quit      Exit")
+        click.echo(f"  {self._cmd('/agents')}    Show running agent servers")
+        click.echo(f"  {self._cmd('/help')}      Show this help")
+        click.echo(f"  {self._cmd('/quit')}      Exit")
         click.echo()
 
     def _show_running_agents(self) -> None:
@@ -213,12 +234,12 @@ class CliEventHandler(ConversationEventHandler):
         else:
             click.echo("Running agents:")
             for agent in running:
-                click.echo(f"  {agent['id']:<20} PID: {agent['pid'] or 'N/A':<10}")
+                click.echo(f"  {self._agent(agent['id']):<20} PID: {agent['pid'] or 'N/A':<10}")
         click.echo()
 
     async def prompt_user_input(self) -> str | None:
         """Prompt user for input between rounds."""
-        click.echo("[Enter to continue, /help for commands, or type message]")
+        click.echo(f"[Enter to continue, {self._cmd('/help')} for commands, or type message]")
 
         user_input = await self._get_input("> ")
 
@@ -244,4 +265,4 @@ class CliEventHandler(ConversationEventHandler):
 
     def on_max_rounds_reached(self, max_rounds: int) -> None:
         """Display max rounds message."""
-        click.echo("\nMax rounds reached without consensus.")
+        click.echo(f"\n{self._error('Max rounds reached without consensus.')}.")

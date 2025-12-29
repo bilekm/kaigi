@@ -718,7 +718,7 @@ Begin execution now.
             elif cmd == "/quit":
                 return "__quit__"
             else:
-                click.echo(f"Unknown command: {cmd}. Type /help for available commands.")
+                click.echo(f"Unknown command: {click.style(cmd, fg='bright_yellow')}. Type {click.style('/help', fg='bright_yellow')} for available commands.")
 
         result = output.getvalue()
         return result if result.strip() else None
@@ -727,20 +727,20 @@ Begin execution now.
         """Show available commands."""
         click.echo()
         click.echo("Session commands (temporary):")
-        click.echo("  /agents                       List current agents")
-        click.echo("  /add <agent> [persona]        Add agent from settings")
-        click.echo("  /remove <agent-id>            Remove agent from conversation")
-        click.echo("  /model <agent-id> <model>     Change agent's model")
-        click.echo("  /persona <agent-id> <text>    Update agent's persona")
+        click.echo(f"  {click.style('/agents', fg='bright_yellow')}                       List current agents")
+        click.echo(f"  {click.style('/add <agent> [persona]', fg='bright_yellow')}        Add agent from settings")
+        click.echo(f"  {click.style('/remove <agent-id>', fg='bright_yellow')}            Remove agent from conversation")
+        click.echo(f"  {click.style('/model <agent-id> <model>', fg='bright_yellow')}     Change agent's model")
+        click.echo(f"  {click.style('/persona <agent-id> <text>', fg='bright_yellow')}    Update agent's persona")
         click.echo()
         click.echo("Config commands (permanent):")
-        click.echo("  /save                         Save agents to project config")
-        click.echo("  /config                       Show config file locations")
-        click.echo("  /config show                  Display project config")
+        click.echo(f"  {click.style('/save', fg='bright_yellow')}                         Save agents to project config")
+        click.echo(f"  {click.style('/config', fg='bright_yellow')}                       Show config file locations")
+        click.echo(f"  {click.style('/config show', fg='bright_yellow')}                  Display project config")
         click.echo()
         click.echo("Other:")
-        click.echo("  /help                         Show this help")
-        click.echo("  /quit                         End conversation")
+        click.echo(f"  {click.style('/help', fg='bright_yellow')}                         Show this help")
+        click.echo(f"  {click.style('/quit', fg='bright_yellow')}                         End conversation")
         click.echo()
 
     def _cmd_agents(self) -> None:
@@ -750,7 +750,7 @@ Begin execution now.
         for agent in self.workflow.agents:
             model_str = f" (model: {agent.model})" if agent.model else ""
             ref_str = f" -> {agent.agent}" if agent.agent else ""
-            click.echo(f"  {agent.id}{ref_str}{model_str}")
+            click.echo(f"  {click.style(agent.id, fg='green')}{ref_str}{model_str}")
             if agent.persona:
                 # Show truncated persona
                 persona_display = agent.persona[:60] + "..." if len(agent.persona) > 60 else agent.persona
@@ -762,7 +762,7 @@ Begin execution now.
         # Check if agent exists in settings
         config = get_agent_config(agent_name)
         if not config:
-            click.echo(f"Agent '{agent_name}' not found in settings.")
+            click.echo(f"{click.style('ERROR', fg='red')}: Agent '{agent_name}' not found in settings.")
             click.echo("Available agents: ", nl=False)
             from orchestrator.lib.settings import load_agent_settings
             settings = load_agent_settings()
@@ -792,7 +792,7 @@ Begin execution now.
     def _cmd_remove(self, agent_id: str) -> None:
         """Remove an agent from the conversation."""
         if len(self.workflow.agents) <= 2:
-            click.echo("Cannot remove agent: minimum 2 agents required.")
+            click.echo(f"{click.style('ERROR', fg='red')}: Cannot remove agent: minimum 2 agents required.")
             return
 
         for i, agent in enumerate(self.workflow.agents):
@@ -801,8 +801,8 @@ Begin execution now.
                 click.echo(f"Removed agent '{agent_id}'")
                 return
 
-        click.echo(f"Agent '{agent_id}' not found.")
-        click.echo("Current agents: " + ", ".join(a.id for a in self.workflow.agents))
+        click.echo(f"{click.style('ERROR', fg='red')}: Agent '{agent_id}' not found.")
+        click.echo("Current agents: " + ", ".join(click.style(a.id, fg='green') for a in self.workflow.agents))
 
     def _cmd_model(self, agent_id: str, model: str) -> None:
         """Change an agent's model."""
@@ -810,20 +810,20 @@ Begin execution now.
             if agent.id == agent_id:
                 old_model = agent.model or "(default)"
                 agent.model = model
-                click.echo(f"Changed {agent_id} model: {old_model} -> {model}")
+                click.echo(f"Changed {click.style(agent_id, fg='green')} model: {old_model} -> {model}")
                 return
 
-        click.echo(f"Agent '{agent_id}' not found.")
+        click.echo(f"{click.style('ERROR', fg='red')}: Agent '{agent_id}' not found.")
 
     def _cmd_persona(self, agent_id: str, persona: str) -> None:
         """Update an agent's persona."""
         for agent in self.workflow.agents:
             if agent.id == agent_id:
                 agent.persona = persona
-                click.echo(f"Updated {agent_id} persona.")
+                click.echo(f"Updated {click.style(agent_id, fg='green')} persona.")
                 return
 
-        click.echo(f"Agent '{agent_id}' not found.")
+        click.echo(f"{click.style('ERROR', fg='red')}: Agent '{agent_id}' not found.")
 
     def _cmd_save(self) -> None:
         """Save current agents to project config file."""
@@ -901,7 +901,7 @@ Begin execution now.
             project_default = Path.cwd() / ".orchestrator" / "agents.yaml"
             click.echo(f"  Project: {project_default} (not created)")
             click.echo()
-            click.echo("Use /save to create project config from current agents.")
+            click.echo(f"Use {click.style('/save', fg='bright_yellow')} to create project config from current agents.")
         click.echo()
 
     def _cmd_config_show(self) -> None:
@@ -910,8 +910,8 @@ Begin execution now.
 
         project_path = get_project_settings_path()
         if not project_path or not project_path.exists():
-            click.echo("No project config found.")
-            click.echo("Use /save to create one from current agents.")
+            click.echo(f"{click.style('ERROR', fg='red')}: No project config found.")
+            click.echo(f"Use {click.style('/save', fg='bright_yellow')} to create one from current agents.")
             return
 
         click.echo(f"\n--- {project_path} ---")
