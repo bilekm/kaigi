@@ -270,6 +270,51 @@ class CliEventHandler(ConversationEventHandler):
 
         return stripped if stripped else None
 
+    async def prompt_user_question(
+        self,
+        question: str,
+        options: list[dict[str, str]] | None = None,
+    ) -> str:
+        """Prompt user a question during agent execution."""
+        click.echo()
+        click.echo(f"[{self._cmd('Question from agent')}]")
+        click.echo(question)
+
+        if options:
+            click.echo()
+            click.echo("Options:")
+            for i, option in enumerate(options, 1):
+                label = option.get("label", f"{i}")
+                description = option.get("description", "")
+                if description:
+                    click.echo(f"  {i}. {self._cmd(label)} - {description}")
+                else:
+                    click.echo(f"  {i}. {self._cmd(label)}")
+            click.echo(f"  {len(options) + 1}. Other (type custom response)")
+            click.echo()
+
+            while True:
+                response = await self._get_input("Choose option (or type custom response): ")
+                response = response.strip()
+
+                # Check if it's a number
+                try:
+                    choice = int(response)
+                    if 1 <= choice <= len(options):
+                        return options[choice - 1].get("label", str(choice))
+                except ValueError:
+                    pass
+
+                # Return custom response if not empty
+                if response:
+                    return response
+
+                click.echo("Please enter a choice or custom response.")
+        else:
+            # No options, free-form input
+            response = await self._get_input("Your response: ")
+            return response.strip()
+
     def on_command_result(self, command: str, result: str) -> None:
         """Display command result."""
         click.echo(result)

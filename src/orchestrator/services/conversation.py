@@ -6,7 +6,9 @@ import asyncio
 import glob
 import json
 import os
+import re
 import signal
+import yaml
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -105,9 +107,20 @@ class ConversationExecutor:
             )
             record.id = execution_id
 
-            # Note: We don't load context files into the prompt.
-            # Agents have their own tools (Read, Grep, etc.) to explore the codebase.
-            # record.context_files_content stays empty
+            # Load context files if preload_context is enabled
+            # By default, we use on-demand exploration (agents have tools like Read, Grep, etc.)
+            # Setting preload_context: true in workflow enables pre-loading for large codebases
+            if self.workflow.preload_context and self.workflow.context_files:
+                record.context_files_content = self._load_context_files()
+                self.logger.info(
+                    "Context files loaded",
+                    count=len(record.context_files_content),
+                    total_bytes=sum(len(v) for v in record.context_files_content.values()),
+                )
+            else:
+                # Default: on-demand exploration philosophy
+                # record.context_files_content stays empty
+                pass
 
             # Prompt for topic if not provided
             topic_was_prompted = False
@@ -267,6 +280,11 @@ class ConversationExecutor:
         Looks for JSON-formatted tool calls in the text.
         Format: {"type": "tool_call", "id": "t1", "tool": "read_file", "args": {...}}
 
+        Supports multiple formats:
+        1. Strict JSON-per-line (original behavior)
+        2. Multiline JSON objects
+        3. Markdown code blocks (```json ... ```)
+
         Args:
             text: Agent output text
 
@@ -275,21 +293,59 @@ class ConversationExecutor:
         """
         tool_calls = []
 
-        # Split into lines and look for JSON objects
+        # Try strict JSON-per-line parsing first (fast path)
         for line in text.splitlines():
             line = line.strip()
             if not line:
                 continue
 
-            # Try to parse as JSON
             try:
                 data = json.loads(line)
                 if isinstance(data, dict) and data.get("type") == "tool_call":
                     tool_call = ToolCall(**data)
                     tool_calls.append(tool_call)
             except (json.JSONDecodeError, ValueError):
-                # Not a tool call line, skip
+                # Not valid JSON or not a tool call, continue
                 continue
+
+        # If we found tool calls, return them (success on fast path)
+        if tool_calls:
+            return tool_calls
+
+        # Fallback: Regex extraction for multiline JSON and markdown blocks
+        # Pattern matches: {"type": "tool_call", ...}
+        # Handles multiline by matching content between braces
+        tool_call_pattern = re.compile(
+            r'\{[^{}]*"type"\s*:\s*"tool_call"[^{}]*\}',
+            re.DOTALL
+        )
+
+        # Also try to extract from markdown code blocks
+        markdown_pattern = re.compile(
+            r'```(?:json)?\s*\n(\{[^{}]*"type"\s*:\s*"tool_call"[^{}]*\})\s*```',
+            re.DOTALL
+        )
+
+        # Try markdown extraction first
+        for match in markdown_pattern.finditer(text):
+            json_str = match.group(1)
+            try:
+                data = json.loads(json_str)
+                tool_call = ToolCall(**data)
+                tool_calls.append(tool_call)
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+        # If still no matches, try raw regex extraction
+        if not tool_calls:
+            for match in tool_call_pattern.finditer(text):
+                json_str = match.group(0)
+                try:
+                    data = json.loads(json_str)
+                    tool_call = ToolCall(**data)
+                    tool_calls.append(tool_call)
+                except (json.JSONDecodeError, ValueError):
+                    continue
 
         return tool_calls
 
@@ -352,7 +408,96 @@ class ConversationExecutor:
                     tool_id=tool_call.id,
                 )
 
-                # Check capability
+                # Special handling for ask_user tool (always allowed, no capability check)
+                if tool_call.tool == "ask_user":
+                    question = tool_call.args.get("question", "")
+                    options = tool_call.args.get("options")
+
+                    try:
+                        response = await self.event_handler.prompt_user_question(question, options)
+                        result = ToolResult(
+                            id=tool_call.id,
+                            status="ok",
+                            content=response,
+                        )
+                        self.logger.info(
+                            "User question answered",
+                            agent_id=agent.id,
+                            question=question[:100],
+                        )
+                    except Exception as e:
+                        result = ToolResult(
+                            id=tool_call.id,
+                            status="error",
+                            content=f"Failed to get user input: {e}",
+                        )
+                        self.logger.error(
+                            "User question failed",
+                            agent_id=agent.id,
+                            error=str(e),
+                        )
+                    tool_results.append(result)
+                    continue
+
+                # Special handling for spawn_agent tool
+                if tool_call.tool == "spawn_agent":
+                    agent_type = tool_call.args.get("agent_type", "general")
+                    prompt = tool_call.args.get("prompt", "")
+
+                    try:
+                        # Load subagent configuration
+                        subagent_config = self._load_subagent_config(agent_type)
+
+                        # Create temporary ConversationAgent
+                        from orchestrator.models.workflow import ConversationAgent
+
+                        subagent = ConversationAgent(
+                            id=f"sub_{agent_type}_{uuid4().hex[:8]}",
+                            agent=subagent_config.get("agent"),
+                            persona=subagent_config.get("persona", ""),
+                            permissions=subagent_config.get("permissions", ["read:*"]),
+                            model=subagent_config.get("model"),
+                        )
+
+                        self.logger.info(
+                            "Spawning subagent",
+                            agent_type=agent_type,
+                            subagent_id=subagent.id,
+                        )
+
+                        # Execute subagent with tool support (read-only by default)
+                        subagent_response = await self._execute_agent(
+                            subagent,
+                            prompt,
+                            with_write_permission=False,  # Subagents are read-only by default
+                        )
+
+                        result = ToolResult(
+                            id=tool_call.id,
+                            status="ok",
+                            content=subagent_response,
+                        )
+                        self.logger.info(
+                            "Subagent completed",
+                            agent_type=agent_type,
+                            subagent_id=subagent.id,
+                            response_length=len(subagent_response),
+                        )
+                    except Exception as e:
+                        result = ToolResult(
+                            id=tool_call.id,
+                            status="error",
+                            content=f"Subagent execution failed: {e}",
+                        )
+                        self.logger.error(
+                            "Subagent failed",
+                            agent_type=agent_type,
+                            error=str(e),
+                        )
+                    tool_results.append(result)
+                    continue
+
+                # Check capability for other tools
                 decision, reason = capability_checker.check_capability(tool_call)
 
                 if decision == "denied":
@@ -673,8 +818,24 @@ You have access to the following tools. To use a tool, output a JSON object on i
 2. **write_file** - Write content to a file (creates parent dirs if needed)
    Usage: {{"type": "tool_call", "id": "t2", "tool": "write_file", "args": {{"path": "src/file.py", "content": "..."}}}}
 
-3. **exec_bash** - Execute a bash command in workspace directory
-   Usage: {{"type": "tool_call", "id": "t3", "tool": "exec_bash", "args": {{"command": "ls -la"}}}}
+3. **edit_file** - Surgical string replacement in a file
+   Usage: {{"type": "tool_call", "id": "t3", "tool": "edit_file", "args": {{"path": "src/file.py", "old_string": "foo", "new_string": "bar", "replace_all": false}}}}
+
+4. **grep** - Search for patterns in files
+   Usage: {{"type": "tool_call", "id": "t4", "tool": "grep", "args": {{"pattern": "TODO", "path": "src", "glob_pattern": "*.py", "ignore_case": true}}}}
+
+5. **glob** - Find files matching a pattern
+   Usage: {{"type": "tool_call", "id": "t5", "tool": "glob", "args": {{"pattern": "**/*.py"}}}}
+
+6. **exec_bash** - Execute a bash command in workspace directory
+   Usage: {{"type": "tool_call", "id": "t6", "tool": "exec_bash", "args": {{"command": "ls -la"}}}}
+
+7. **ask_user** - Ask the user a question for clarification
+   Usage: {{"type": "tool_call", "id": "t7", "tool": "ask_user", "args": {{"question": "Which approach do you prefer?", "options": [{{"label": "A", "description": "..."}}, {{"label": "B", "description": "..."}}]}}}}
+
+8. **spawn_agent** - Spawn a specialized subagent for a task
+   Usage: {{"type": "tool_call", "id": "t8", "tool": "spawn_agent", "args": {{"agent_type": "explore", "prompt": "Find all database schema files"}}}}
+   Agent types: explore (fast codebase search), plan (architecture design), review (code review), general (any task)
 
 **Tool Response Format:**
 
@@ -691,6 +852,10 @@ After each tool call, you will receive a JSON response:
 **Important:**
 - All file paths are relative to the workspace root
 - Use read_file before editing to understand the current state
+- Use grep and glob for codebase exploration instead of exec_bash
+- Use edit_file for surgical edits instead of write_file when making small changes
+- Use ask_user when you need clarification from the user
+- Use spawn_agent to delegate specialized tasks to subagents
 - Make changes incrementally and verify each step
 - If a tool fails, the error will explain why
 
@@ -763,6 +928,72 @@ Begin execution now.
                 break
 
         return files
+
+    def _load_subagent_config(self, agent_type: str) -> dict[str, Any]:
+        """Load subagent configuration from subagents.yaml.
+
+        Checks both project-local (.orchestrator/subagents.yaml) and global
+        (~/.orchestrator/subagents.yaml) config files. Project config takes
+        precedence over global config.
+
+        Args:
+            agent_type: The type of subagent to load (e.g., "explore", "plan", "review")
+
+        Returns:
+            Dictionary with subagent configuration (model, persona, permissions, agent)
+
+        Raises:
+            ValueError: If agent_type is not found in any config file
+        """
+        import os
+
+        # Paths to check (project takes precedence)
+        project_config = Path.cwd() / ".orchestrator" / "subagents.yaml"
+        global_config = Path.home() / ".orchestrator" / "subagents.yaml"
+
+        config_data: dict[str, Any] = {}
+
+        # Load global config first (base configuration)
+        if global_config.exists():
+            try:
+                with open(global_config) as f:
+                    config_data = yaml.safe_load(f) or {}
+            except Exception as e:
+                self.logger.warning(
+                    "Failed to load global subagent config",
+                    path=str(global_config),
+                    error=str(e),
+                )
+
+        # Overlay project config (overrides global)
+        if project_config.exists():
+            try:
+                with open(project_config) as f:
+                    project_data = yaml.safe_load(f) or {}
+                    config_data.update(project_data)
+            except Exception as e:
+                self.logger.warning(
+                    "Failed to load project subagent config",
+                    path=str(project_config),
+                    error=str(e),
+                )
+
+        # Get the agent type configuration
+        if agent_type not in config_data:
+            # Fall back to "general" if available
+            if "general" in config_data:
+                self.logger.info(
+                    "Agent type not found, using general",
+                    agent_type=agent_type,
+                )
+                agent_type = "general"
+            else:
+                raise ValueError(
+                    f"Unknown subagent type: {agent_type}. "
+                    f"Available types: {list(config_data.keys())}"
+                )
+
+        return config_data[agent_type]
 
     def _check_consensus(
         self,

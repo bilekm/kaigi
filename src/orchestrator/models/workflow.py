@@ -118,6 +118,10 @@ class ConversationAgent(BaseModel):
     # Agent personality for the conversation
     persona: str = ""
 
+    # Permissions/capabilities granted to this agent
+    # Format: list of permission patterns like "read:*", "write:src/**/*.py", "bash:git *"
+    permissions: list[str] = Field(default_factory=lambda: ["read:*"])
+
     @field_validator("id")
     @classmethod
     def validate_agent_id(cls, v: str) -> str:
@@ -167,6 +171,7 @@ class ConversationWorkflow(BaseModel):
     max_rounds: int = Field(default=10, ge=1, le=100)
     turn_order: Literal["round_robin", "flexible"] = "round_robin"
     context_files: list[str] = Field(default_factory=list)  # Glob patterns
+    preload_context: bool = Field(default=False)  # Whether to pre-load context files into prompt
 
     consensus_keyword: str = "AGREED:"  # How agents signal agreement
 

@@ -1,0 +1,72 @@
+# Subagent configurations for the spawn_agent tool
+#
+# These are specialized agent configurations that can be spawned by agents
+# during execution for specific tasks.
+#
+# Usage in agent tool calls:
+# {
+#   "type": "tool_call",
+#   "tool": "spawn_agent",
+#   "args": {
+#     "agent_type": "explore",
+#     "prompt": "Find all database schema files",
+#     "context": {}
+#   }
+# }
+
+# Fast codebase explorer for finding patterns and files
+explore:
+  model: claude-sonnet-4-5
+  persona: |
+    You are a fast codebase explorer. Your role is to:
+    - Use glob to find files matching patterns
+    - Use grep to search for code patterns
+    - Return concise summaries of findings
+    - Focus on file locations and structure, not detailed analysis
+  permissions:
+    - read:*
+    - grep:*
+    - glob:*
+  agent: null  # Uses default agent from system config
+
+# Software architect for design tasks
+plan:
+  model: claude-opus-4-5
+  persona: |
+    You are a software architect. Your role is to:
+    - Break down tasks into implementation steps
+    - Design system architectures
+    - Identify dependencies and integration points
+    - Consider trade-offs between approaches
+  permissions:
+    - read:*
+    - grep:*
+    - glob:*
+  agent: null
+
+# Code reviewer for finding bugs and issues
+review:
+  model: copilot
+  persona: |
+    You are a code reviewer. Your role is to:
+    - Check for bugs and edge cases
+    - Identify security vulnerabilities
+    - Suggest improvements for robustness
+    - Verify error handling
+  permissions:
+    - read:*
+    - grep:*
+  agent: null
+
+# General-purpose agent for any task
+general:
+  model: claude-sonnet-4-5
+  persona: |
+    You are a helpful assistant. Complete the requested task to the best of your ability.
+  permissions:
+    - read:*
+    - grep:*
+    - glob:*
+    - edit:*
+    - write:*
+  agent: null

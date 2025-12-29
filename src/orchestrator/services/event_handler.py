@@ -132,6 +132,25 @@ class ConversationEventHandler(ABC):
         """
 
     @abstractmethod
+    async def prompt_user_question(
+        self,
+        question: str,
+        options: list[dict[str, str]] | None = None,
+    ) -> str:
+        """Prompt user a question during agent execution.
+
+        Used by the ask_user tool to get clarification from the user
+        mid-task. The agent provides a question and optional choices.
+
+        Args:
+            question: The question to ask the user
+            options: Optional list of choices, each with 'label' and 'description'
+
+        Returns:
+            The user's response (either an option label or free-form text)
+        """
+
+    @abstractmethod
     def on_command_result(self, command: str, result: str) -> None:
         """Called when a slash command is executed.
 
@@ -214,6 +233,16 @@ class NullEventHandler(ConversationEventHandler):
 
     async def prompt_user_input(self) -> str | None:
         return None
+
+    async def prompt_user_question(
+        self,
+        question: str,
+        options: list[dict[str, str]] | None = None,
+    ) -> str:
+        # In non-interactive mode, return first option or empty string
+        if options:
+            return options[0].get("label", "")
+        return ""
 
     def on_command_result(self, command: str, result: str) -> None:
         pass
