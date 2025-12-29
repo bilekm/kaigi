@@ -28,7 +28,6 @@ from orchestrator.lib.prompts import (
     build_team_member_prompt,
     build_team_prompt,
     build_team_system_message,
-    format_context_files,
 )
 from orchestrator.lib.settings import get_agent_config
 from orchestrator.lib.signals import signal_handler_context
@@ -41,6 +40,7 @@ from orchestrator.models.execution import (
     TurnResult,
 )
 from orchestrator.models.workflow import ConversationAgent, ConversationWorkflow
+from orchestrator.services.event_handler import ConversationEventHandler, NullEventHandler
 from orchestrator.services.store import WorkflowStore
 
 
@@ -65,12 +65,12 @@ class ConversationExecutor:
         workflow: ConversationWorkflow,
         yaml_content: str,
         store: WorkflowStore | None = None,
-        interactive: bool = True,
+        event_handler: ConversationEventHandler | None = None,
     ):
         self.workflow = workflow
         self.yaml_content = yaml_content
         self.store = store or WorkflowStore()
-        self.interactive = interactive
+        self.event_handler = event_handler or NullEventHandler()
         self.logger = get_logger()
 
     def execute(self) -> dict[str, Any]:
@@ -103,8 +103,25 @@ class ConversationExecutor:
             )
             record.id = execution_id
 
-            # Load context files
-            record.context_files_content = self._load_context_files()
+            # Note: We don't load context files into the prompt.
+            # Agents have their own tools (Read, Grep, etc.) to explore the codebase.
+            # record.context_files_content stays empty
+
+            # Prompt for topic if not provided
+            topic_was_prompted = False
+            if not self.workflow.topic:
+                agent_ids = [a.id for a in self.workflow.agents]
+                topic = await self.event_handler.prompt_topic(
+                    self.workflow.name, agent_ids
+                )
+                if topic is None:
+                    record.cancel()
+                    self.store.save_conversation(workflow_id, record)
+                    return self._format_result(record)
+                self.workflow.topic = topic
+                record.topic = topic
+                topic_was_prompted = True
+                click.echo()  # Preserve spacing for CLI handler
 
             # Add system message with topic
             agent_ids = [a.id for a in self.workflow.agents]
@@ -132,17 +149,15 @@ class ConversationExecutor:
                     agents=agent_ids,
                 )
 
-                if self.interactive:
-                    click.echo(f"Starting conversation: {self.workflow.name}")
-                    click.echo(f"Topic: {self.workflow.topic[:100]}...")
-                    if self.workflow.collaboration == "orchestrated":
-                        click.echo(f"Mode: Orchestrated (Lead: {self.workflow.lead})")
-                        team_ids = [a.id for a in self.workflow.get_team_agents()]
-                        click.echo(f"Team: {', '.join(team_ids)}")
-                    else:
-                        click.echo(f"Mode: Team collaboration")
-                        click.echo(f"Agents: {', '.join(agent_ids)}")
-                    click.echo()
+                # Notify event handler of conversation start
+                if not topic_was_prompted:
+                    self.event_handler.on_conversation_start(
+                        workflow_name=self.workflow.name,
+                        topic=self.workflow.topic,
+                        agents=agent_ids,
+                        collaboration=self.workflow.collaboration,
+                        lead=self.workflow.lead,
+                    )
 
                 # Main loop
                 while record.current_round < self.workflow.max_rounds:
@@ -153,8 +168,7 @@ class ConversationExecutor:
 
                     record.current_round += 1
 
-                    if self.interactive:
-                        click.echo(f"--- Round {record.current_round} ---")
+                    self.event_handler.on_round_start(record.current_round)
 
                     # Determine turn order based on collaboration mode
                     if self.workflow.collaboration == "orchestrated":
@@ -182,20 +196,22 @@ class ConversationExecutor:
 
                     # After round, check if consensus reached
                     if record.consensus_status == ConsensusStatus.AGREED:
-                        if self.interactive:
-                            approved = await self._prompt_user_approval(record)
-                            if approved:
-                                record.consensus_status = ConsensusStatus.APPROVED
-                                record.complete()
-                                self.store.save_conversation(workflow_id, record)
-                                break
-                            else:
-                                record.consensus_status = ConsensusStatus.REJECTED
-                                # Continue discussion
+                        self.event_handler.on_consensus_reached(record.consensus_content or "")
+                        approved = await self.event_handler.prompt_user_approval(
+                            record.consensus_content or ""
+                        )
+                        if approved:
+                            record.consensus_status = ConsensusStatus.APPROVED
+                            record.complete()
+                            self.store.save_conversation(workflow_id, record)
+                            break
+                        else:
+                            record.consensus_status = ConsensusStatus.REJECTED
+                            # Continue discussion
 
                     # Prompt user for input between rounds
-                    if self.interactive and not _cancelled:
-                        user_input = await self._prompt_user_input()
+                    if not _cancelled:
+                        user_input = await self.event_handler.prompt_user_input()
                         if user_input == "__quit__":
                             record.cancel()
                             self.store.save_conversation(workflow_id, record)
@@ -208,8 +224,7 @@ class ConversationExecutor:
                 if record.status == ExecutionStatus.RUNNING:
                     if record.current_round >= self.workflow.max_rounds:
                         record.complete()
-                        if self.interactive:
-                            click.echo("\nMax rounds reached without consensus.")
+                        self.event_handler.on_max_rounds_reached(self.workflow.max_rounds)
 
                 record.ended_at = datetime.now(timezone.utc)
                 self.store.save_conversation(workflow_id, record)
@@ -230,8 +245,7 @@ class ConversationExecutor:
         turn.start()
         record.turn_results.append(turn)
 
-        if self.interactive:
-            click.echo(f"  [{agent.id}] thinking...", nl=False)
+        self.event_handler.on_agent_turn_start(agent.id)
 
         # Build prompt
         prompt = self._build_prompt(record, agent)
@@ -251,23 +265,14 @@ class ConversationExecutor:
                 duration=duration,
             )
 
-            if self.interactive:
-                click.echo(f" done ({duration:.1f}s)")
-                # Show truncated response
-                display = output[:300] + "..." if len(output) > 300 else output
-                for line in display.split("\n")[:5]:
-                    click.echo(f"    {line}")
-                if output.count("\n") > 5:
-                    click.echo("    ...")
-                click.echo()
+            self.event_handler.on_agent_turn_complete(agent.id, duration, output)
 
         except asyncio.TimeoutError:
             turn.fail(f"Timeout after {agent.timeout}s")
 
             self.logger.error("Agent timeout", agent_id=agent.id, timeout=agent.timeout)
 
-            if self.interactive:
-                click.echo(" TIMEOUT")
+            self.event_handler.on_agent_turn_error(agent.id, "TIMEOUT")
 
             raise agent_timeout(agent.id, agent.timeout)
 
@@ -279,8 +284,7 @@ class ConversationExecutor:
 
             self.logger.error("Agent error", agent_id=agent.id, error=str(e))
 
-            if self.interactive:
-                click.echo(f" ERROR: {e}")
+            self.event_handler.on_agent_turn_error(agent.id, str(e))
 
             raise conversation_error(f"Agent '{agent.id}' failed: {e}")
 
@@ -369,10 +373,9 @@ class ConversationExecutor:
         # Resolve agent configuration
         command, args_template, agent_env, timeout, model = self._resolve_agent(agent)
 
-        # Prepend /model command if model is specified
+        # Note: /model command only works in interactive mode, not with -p flag
+        # For spawn mode, ignore the model setting (agent uses its default)
         effective_prompt = prompt
-        if model:
-            effective_prompt = f"/model {model}\n{prompt}"
 
         # Replace {{prompt}} placeholder in args
         args = [arg.replace("{{prompt}}", effective_prompt) for arg in args_template]
@@ -421,7 +424,6 @@ class ConversationExecutor:
         agent: ConversationAgent,
     ) -> str:
         """Build the prompt for an agent's turn."""
-        context_str = format_context_files(record.context_files_content)
         history = record.get_conversation_history()
 
         if self.workflow.collaboration == "orchestrated":
@@ -433,7 +435,6 @@ class ConversationExecutor:
                     persona=agent.persona,
                     topic=self.workflow.topic,
                     consensus_keyword=self.workflow.consensus_keyword,
-                    context_files=context_str,
                     history=history,
                     team_list=team_list,
                 )
@@ -443,7 +444,6 @@ class ConversationExecutor:
                     persona=agent.persona,
                     topic=self.workflow.topic,
                     lead_id=self.workflow.lead or "",
-                    context_files=context_str,
                     history=history,
                 )
         else:
@@ -453,7 +453,6 @@ class ConversationExecutor:
                 persona=agent.persona,
                 topic=self.workflow.topic,
                 consensus_keyword=self.workflow.consensus_keyword,
-                context_files=context_str,
                 history=history,
             )
 
@@ -560,24 +559,26 @@ class ConversationExecutor:
                 return
 
     async def _prompt_user_input(self) -> str | None:
-        """Prompt user for input between rounds."""
-        click.echo("[Enter to continue, /help for commands, or type message]")
+        """Prompt user for input between rounds, handling slash commands.
 
-        # Use asyncio-compatible input
-        loop = asyncio.get_event_loop()
-        user_input = await loop.run_in_executor(None, input, "> ")
+        Delegates the actual prompt to the event handler, then processes
+        the input for commands.
+        """
+        user_input = await self.event_handler.prompt_user_input()
+
+        if not user_input:
+            return None
 
         stripped = user_input.strip()
-
-        if stripped.lower() == "quit":
-            return "__quit__"
 
         # Handle slash commands
         if stripped.startswith("/"):
             handled = self._handle_command(stripped)
             if handled == "__quit__":
                 return "__quit__"
-            # Command was handled, prompt again
+            # Command was handled, show result and prompt again
+            if handled:
+                self.event_handler.on_command_result(stripped, handled)
             return await self._prompt_user_input()
 
         return stripped if stripped else None
@@ -585,50 +586,58 @@ class ConversationExecutor:
     def _handle_command(self, command: str) -> str | None:
         """Handle slash commands during conversation.
 
-        Returns "__quit__" to quit, None otherwise.
+        Returns "__quit__" to quit, result string to display, or None.
         """
+        import io
+        from contextlib import redirect_stdout
+
         parts = command.split(maxsplit=2)
         cmd = parts[0].lower()
 
-        if cmd == "/help":
-            self._cmd_help()
-        elif cmd == "/agents":
-            self._cmd_agents()
-        elif cmd == "/add":
-            if len(parts) < 2:
-                click.echo("Usage: /add <agent-name> [persona]")
-            else:
-                agent_name = parts[1]
-                persona = parts[2] if len(parts) > 2 else ""
-                self._cmd_add(agent_name, persona)
-        elif cmd == "/remove":
-            if len(parts) < 2:
-                click.echo("Usage: /remove <agent-id>")
-            else:
-                self._cmd_remove(parts[1])
-        elif cmd == "/model":
-            if len(parts) < 3:
-                click.echo("Usage: /model <agent-id> <model-name>")
-            else:
-                self._cmd_model(parts[1], parts[2])
-        elif cmd == "/persona":
-            if len(parts) < 3:
-                click.echo("Usage: /persona <agent-id> <new-persona>")
-            else:
-                self._cmd_persona(parts[1], parts[2])
-        elif cmd == "/save":
-            self._cmd_save()
-        elif cmd == "/config":
-            if len(parts) > 1 and parts[1] == "show":
-                self._cmd_config_show()
-            else:
-                self._cmd_config()
-        elif cmd == "/quit":
-            return "__quit__"
-        else:
-            click.echo(f"Unknown command: {cmd}. Type /help for available commands.")
+        # Capture click.echo output
+        output = io.StringIO()
 
-        return None
+        with redirect_stdout(output):
+            if cmd == "/help":
+                self._cmd_help()
+            elif cmd == "/agents":
+                self._cmd_agents()
+            elif cmd == "/add":
+                if len(parts) < 2:
+                    click.echo("Usage: /add <agent-name> [persona]")
+                else:
+                    agent_name = parts[1]
+                    persona = parts[2] if len(parts) > 2 else ""
+                    self._cmd_add(agent_name, persona)
+            elif cmd == "/remove":
+                if len(parts) < 2:
+                    click.echo("Usage: /remove <agent-id>")
+                else:
+                    self._cmd_remove(parts[1])
+            elif cmd == "/model":
+                if len(parts) < 3:
+                    click.echo("Usage: /model <agent-id> <model-name>")
+                else:
+                    self._cmd_model(parts[1], parts[2])
+            elif cmd == "/persona":
+                if len(parts) < 3:
+                    click.echo("Usage: /persona <agent-id> <new-persona>")
+                else:
+                    self._cmd_persona(parts[1], parts[2])
+            elif cmd == "/save":
+                self._cmd_save()
+            elif cmd == "/config":
+                if len(parts) > 1 and parts[1] == "show":
+                    self._cmd_config_show()
+                else:
+                    self._cmd_config()
+            elif cmd == "/quit":
+                return "__quit__"
+            else:
+                click.echo(f"Unknown command: {cmd}. Type /help for available commands.")
+
+        result = output.getvalue()
+        return result if result.strip() else None
 
     def _cmd_help(self) -> None:
         """Show available commands."""
@@ -825,28 +834,6 @@ class ConversationExecutor:
         click.echo(project_path.read_text())
         click.echo("---")
 
-    async def _prompt_user_approval(self, record: ConversationRecord) -> bool:
-        """Prompt user to approve consensus."""
-        click.echo()
-        click.echo("=" * 50)
-        click.echo("CONSENSUS REACHED")
-        click.echo("=" * 50)
-        if record.consensus_content:
-            click.echo(record.consensus_content)
-        click.echo("=" * 50)
-        click.echo("[Type 'approve' to accept, or provide feedback to continue]")
-
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, input, "> ")
-
-        if response.lower() == "approve":
-            return True
-
-        if response.strip():
-            record.add_message(MessageRole.USER, f"Feedback: {response}")
-
-        return False
-
     def _format_result(self, record: ConversationRecord) -> dict[str, Any]:
         """Format result for output."""
         return {
@@ -885,15 +872,29 @@ def inject_user_message(
 def execute_conversation(
     workflow: ConversationWorkflow,
     yaml_content: str,
-    interactive: bool = True,
+    event_handler: ConversationEventHandler | None = None,
 ) -> dict[str, Any]:
     """Execute a conversation workflow.
 
     Convenience function for CLI usage.
+
+    Args:
+        workflow: The workflow to execute
+        yaml_content: Raw YAML content for storage
+        event_handler: Event handler for UI (defaults to CliEventHandler)
     """
+    # Import here to avoid circular dependency
+    if event_handler is None:
+        from orchestrator.services.cli_event_handler import CliEventHandler
+        from orchestrator.lib.logging import disable_logging
+
+        # Disable JSON logs for cleaner output
+        disable_logging()
+        event_handler = CliEventHandler()
+
     executor = ConversationExecutor(
         workflow=workflow,
         yaml_content=yaml_content,
-        interactive=interactive,
+        event_handler=event_handler,
     )
     return executor.execute()

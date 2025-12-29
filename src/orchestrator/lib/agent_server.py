@@ -37,6 +37,53 @@ READY_PATTERNS = [
     re.compile(r"^\[.*\]> $", re.MULTILINE),     # Bracketed prompt
 ]
 
+# ANSI escape sequence pattern
+ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]|\x1b\[[\?]?[0-9;]*[hlm]')
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from text."""
+    # Remove ANSI escape sequences
+    text = ANSI_ESCAPE.sub('', text)
+    # Remove other control characters except newline/tab
+    text = ''.join(c for c in text if c == '\n' or c == '\t' or (ord(c) >= 32 and ord(c) < 127) or ord(c) > 127)
+    return text
+
+
+# Pattern for Claude's terminal UI elements
+CLAUDE_UI_PATTERNS = [
+    re.compile(r'^[─│┌┐└┘├┤┬┴┼╭╮╰╯]+\s*$', re.MULTILINE),  # Box drawing lines
+    re.compile(r'^\s*>\s*\[Pasted text.*?\].*$', re.MULTILINE),  # Pasted text indicators
+    re.compile(r'^\s*>\s*Try ".*"$', re.MULTILINE),  # Try suggestions
+    re.compile(r'^\s*\?\s*for shortcuts\s*$', re.MULTILINE),  # Shortcut hints
+    re.compile(r'^\s*>\s*$', re.MULTILINE),  # Empty prompts
+]
+
+
+def clean_agent_response(text: str) -> str:
+    """Clean agent response by removing terminal UI elements."""
+    # First strip ANSI
+    text = strip_ansi(text)
+
+    # Remove Claude UI patterns
+    for pattern in CLAUDE_UI_PATTERNS:
+        text = pattern.sub('', text)
+
+    # Remove lines that are just box drawing characters
+    lines = []
+    for line in text.split('\n'):
+        # Skip lines that are only whitespace and box drawing
+        stripped = line.strip()
+        if stripped and not all(c in '─│┌┐└┘├┤┬┴┼╭╮╰╯ ' for c in stripped):
+            lines.append(line)
+
+    # Clean up multiple blank lines
+    text = '\n'.join(lines)
+    while '\n\n\n' in text:
+        text = text.replace('\n\n\n', '\n\n')
+
+    return text.strip()
+
 
 def get_socket_path(agent_id: str) -> Path:
     """Get the socket path for an agent."""
@@ -60,12 +107,14 @@ class AgentServer:
         args: list[str] | None = None,
         env: dict[str, str] | None = None,
         ready_pattern: str | None = None,
+        spawn_mode: bool = False,
     ):
         self.agent_id = agent_id
         self.command = command
         self.args = args or []
         self.env = env or {}
         self.ready_pattern = re.compile(ready_pattern) if ready_pattern else None
+        self.spawn_mode = spawn_mode  # Use spawn-per-prompt mode instead of PTY
 
         self.socket_path = get_socket_path(agent_id)
         self.pid_path = get_pid_path(agent_id)
@@ -81,6 +130,9 @@ class AgentServer:
 
         # Callback for logging
         self.log_callback: Callable[[str], None] | None = None
+
+        # Track if we've had at least one conversation (for spawn mode)
+        self._has_conversation = False
 
     def _log(self, message: str) -> None:
         """Log a message."""
@@ -126,7 +178,8 @@ class AgentServer:
             # Set up environment
             env = os.environ.copy()
             env.update(self.env)
-            env["TERM"] = "dumb"  # Disable fancy terminal features
+            # Use a proper terminal type - dumb causes issues with some CLIs
+            env.setdefault("TERM", "xterm-256color")
 
             # Execute agent
             cmd = [self.command] + self.args
@@ -146,6 +199,7 @@ class AgentServer:
             self.pid_path.write_text(str(pid))
 
             self._log(f"Spawned agent process (PID: {pid})")
+            self._log(f"Command: {self.command} {' '.join(self.args)}")
 
     def _read_output(self, timeout: float = 0.1) -> str:
         """Read available output from the agent."""
@@ -173,22 +227,46 @@ class AgentServer:
         return output
 
     def _write_input(self, text: str) -> None:
-        """Write input to the agent."""
+        """Write input to the agent.
+
+        Uses \r (carriage return) for PTY input submission.
+        """
         try:
-            os.write(self.master_fd, (text + "\n").encode("utf-8"))
+            # PTY typically uses \r to submit input (Enter key)
+            os.write(self.master_fd, (text + "\r").encode("utf-8"))
         except Exception as e:
             self._log(f"Write error: {e}")
             raise
 
-    async def _wait_for_ready(self, timeout: float = 30) -> str:
-        """Wait for agent to be ready, return accumulated output."""
+    async def _wait_for_ready(self, timeout: float = 10) -> str:
+        """Wait for agent to be ready, return accumulated output.
+
+        Some agents don't produce any initial output (e.g., claude --output-format text).
+        In such cases, we wait for a brief idle period and assume readiness.
+        """
         output = ""
         start_time = asyncio.get_event_loop().time()
+        last_output_time = start_time
+        idle_threshold = 1.0  # 1 second of no output = ready
+        no_output_threshold = 2.0  # 2 seconds with no output at all = assume ready
 
         while True:
             # Check timeout
-            if asyncio.get_event_loop().time() - start_time > timeout:
-                self._log(f"Timeout waiting for ready prompt. Output so far: {output[-200:]}")
+            elapsed = asyncio.get_event_loop().time() - start_time
+            if elapsed > timeout:
+                self._log(f"Timeout ({timeout}s) waiting for ready prompt. Assuming ready.")
+                break
+
+            # Check if agent has been idle (no output for idle_threshold seconds)
+            idle_time = asyncio.get_event_loop().time() - last_output_time
+            if idle_time > idle_threshold and output:
+                # Agent produced output then went quiet - probably ready
+                self._log(f"Agent ready after {elapsed:.1f}s ({len(output)} chars output, {idle_time:.1f}s idle)")
+                break
+
+            # Special case: no output at all for no_output_threshold seconds
+            if not output and idle_time > no_output_threshold:
+                self._log(f"Agent ready after {elapsed:.1f}s (no initial output, assuming ready)")
                 break
 
             # Read available output
@@ -198,8 +276,10 @@ class AgentServer:
 
             if chunk:
                 output += chunk
-                # Check if ready
+                last_output_time = asyncio.get_event_loop().time()
+                # Check if ready (has a prompt pattern)
                 if self._is_ready(output):
+                    self._log(f"Agent ready after {elapsed:.1f}s (prompt detected)")
                     break
 
             await asyncio.sleep(0.05)
@@ -268,6 +348,105 @@ class AgentServer:
 
         self._log(f"Received prompt ({len(prompt)} chars)")
 
+        # Use spawn_mode from config instead of hardcoded command list
+        if self.spawn_mode:
+            # Spawn mode: run agent with -p for each request
+            # Maintains conversation memory through -c/--continue flag
+            await self._handle_prompt_spawn(prompt, timeout, writer)
+        else:
+            # PTY mode: write to persistent PTY connection
+            await self._handle_prompt_pty(prompt, timeout, writer)
+
+    async def _handle_prompt_spawn(
+        self,
+        prompt: str,
+        timeout: int,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        """Handle prompt using spawn-per-prompt mode (for claude/copilot)."""
+        import subprocess
+
+        self._log(f"Using spawn mode for prompt")
+
+        # Build command based on agent type
+        # claude: first prompt uses -p, subsequent use -c -p
+        # copilot: first prompt uses -p, subsequent use --continue -p
+        is_claude = self.command == "claude"
+        is_copilot = self.command == "copilot"
+
+        if self._has_conversation:
+            if is_claude:
+                cmd = [self.command, "-c", "-p", prompt]
+                self._log(f"Running with -c (continue)")
+            elif is_copilot:
+                cmd = [self.command, "--continue", "-p", prompt]
+                self._log(f"Running with --continue")
+            else:
+                # Generic agent - just use -p
+                cmd = [self.command, "-p", prompt]
+                self._log(f"Running with -p (generic)")
+        else:
+            cmd = [self.command, "-p", prompt]
+            self._log(f"Running without continue (first prompt)")
+
+        # Add any additional args (filtered)
+        skip_next = False
+        for arg in self.args:
+            if skip_next:
+                skip_next = False
+                continue
+            if arg in ("-p", "--print", "--prompt", "--output-format"):
+                skip_next = True
+                continue
+            if "{{prompt}}" in arg:
+                continue
+            cmd.append(arg)
+
+        self._log(f"Running: {' '.join(cmd[:4])}...")
+
+        try:
+            # Run the command
+            # Note: copilot -p requires stdin to be provided, even if empty
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    env={**os.environ, **self.env},
+                    input="",  # Provide empty stdin to prevent blocking
+                )
+            )
+
+            response = result.stdout
+            self._log(f"Spawn complete, output: {len(response)} chars")
+
+            # Mark that we now have a conversation
+            self._has_conversation = True
+
+            # Send response
+            clean_response = clean_agent_response(response)
+            done_msg = {"type": "done", "content": clean_response}
+            writer.write((json.dumps(done_msg) + "\n").encode())
+            await writer.drain()
+
+        except subprocess.TimeoutExpired:
+            error_msg = {"type": "error", "message": f"Timeout after {timeout}s"}
+            writer.write((json.dumps(error_msg) + "\n").encode())
+            await writer.drain()
+        except Exception as e:
+            error_msg = {"type": "error", "message": str(e)}
+            writer.write((json.dumps(error_msg) + "\n").encode())
+            await writer.drain()
+
+    async def _handle_prompt_pty(
+        self,
+        prompt: str,
+        timeout: int,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        """Handle prompt using persistent PTY connection."""
         # Clear any pending output
         self._read_output(0.1)
 
@@ -297,9 +476,11 @@ class AgentServer:
                 last_output_time = asyncio.get_event_loop().time()
                 response += chunk
 
-                # Stream chunk to client
-                chunk_msg = {"type": "chunk", "content": chunk}
-                writer.write((json.dumps(chunk_msg) + "\n").encode())
+                # Stream chunk to client (strip ANSI)
+                clean_chunk = strip_ansi(chunk)
+                if clean_chunk:  # Only send non-empty chunks
+                    chunk_msg = {"type": "chunk", "content": clean_chunk}
+                    writer.write((json.dumps(chunk_msg) + "\n").encode())
                 await writer.drain()
 
                 # Check if agent is ready for next input
@@ -327,12 +508,16 @@ class AgentServer:
         if lines and prompt.strip().startswith(lines[0].strip()):
             response = "\n".join(lines[1:])
 
-        # Send done message
-        done_msg = {"type": "done", "content": response.strip()}
+        # Log raw response for debugging
+        self._log(f"Raw response: {repr(response[:500])}")
+
+        # Clean response (strip ANSI and terminal UI elements)
+        clean_response = clean_agent_response(response)
+        done_msg = {"type": "done", "content": clean_response}
         writer.write((json.dumps(done_msg) + "\n").encode())
         await writer.drain()
 
-        self._log(f"Response complete ({len(response)} chars)")
+        self._log(f"Response complete ({len(response)} raw -> {len(clean_response)} clean chars)")
 
     async def start(self) -> None:
         """Start the agent server."""
@@ -340,7 +525,7 @@ class AgentServer:
         if self.socket_path.exists():
             self.socket_path.unlink()
 
-        # Spawn the agent
+        # Spawn the agent first
         self._spawn_agent()
 
         # Wait for agent to be ready
@@ -348,14 +533,14 @@ class AgentServer:
         startup_output = await self._wait_for_ready(timeout=30)
         self._log(f"Agent ready. Startup output: {len(startup_output)} chars")
 
-        # Start socket server
+        # Now start socket server - only after agent is ready
         self.server = await asyncio.start_unix_server(
             self._handle_client,
             path=str(self.socket_path),
         )
+        self._log(f"Server listening on {self.socket_path}")
 
         self.running = True
-        self._log(f"Server listening on {self.socket_path}")
 
         # Serve forever
         async with self.server:
@@ -399,6 +584,7 @@ def run_agent_server(
     args: list[str] | None = None,
     env: dict[str, str] | None = None,
     ready_pattern: str | None = None,
+    spawn_mode: bool = False,
 ) -> None:
     """Run an agent server (blocking)."""
     server = AgentServer(
@@ -407,6 +593,7 @@ def run_agent_server(
         args=args,
         env=env,
         ready_pattern=ready_pattern,
+        spawn_mode=spawn_mode,
     )
 
     def handle_signal(signum, frame):

@@ -16,11 +16,9 @@ You are participating in a team discussion to solve a problem.
 2. Consider different perspectives and build on others' ideas
 3. When you're ready to propose a final solution that everyone should agree on, start your message with: "{consensus_keyword}"
 4. All team members must include "{consensus_keyword}" in their response for consensus to be reached
-5. You can see project files but cannot modify them directly - propose changes instead
-6. Keep your response focused and constructive (aim for 100-300 words unless more detail is needed)
-
-## Project Context Files
-{context_files}
+5. Use your tools to read files as needed - don't ask for file contents, read them yourself
+6. To modify files, propose the changes clearly and wait for approval
+7. Keep your response focused and constructive (aim for 100-300 words unless more detail is needed)
 
 ## Conversation History
 {history}
@@ -61,9 +59,7 @@ You are the LEAD of this team. You analyze tasks, delegate work, and make final 
 5. When ready to conclude, state: "{consensus_keyword}" followed by your final decision
 6. You make the final decision - team provides input but you decide
 7. Be clear and specific in your assignments
-
-## Project Context Files
-{context_files}
+8. Use your tools to read files as needed
 
 ## Conversation History
 {history}
@@ -92,9 +88,7 @@ You are a team member working under the lead's direction.
 5. Respond to questions from the lead or other team members
 6. The lead makes final decisions - provide your best input
 7. Stay focused on your assigned tasks
-
-## Project Context Files
-{context_files}
+8. Use your tools to read files as needed
 
 ## Conversation History
 {history}
@@ -140,7 +134,6 @@ def build_team_prompt(
     persona: str,
     topic: str,
     consensus_keyword: str,
-    context_files: str,
     history: str,
 ) -> str:
     """Build prompt for team mode (equal collaboration)."""
@@ -148,7 +141,6 @@ def build_team_prompt(
         persona=persona or f"You are team member {agent_id}.",
         topic=topic,
         consensus_keyword=consensus_keyword,
-        context_files=context_files or "(No context files provided)",
         history=history or "(No previous messages - you are starting the discussion)",
         agent_id=agent_id,
     )
@@ -159,7 +151,6 @@ def build_lead_prompt(
     persona: str,
     topic: str,
     consensus_keyword: str,
-    context_files: str,
     history: str,
     team_list: str,
 ) -> str:
@@ -168,7 +159,6 @@ def build_lead_prompt(
         persona=persona or f"You are the team lead {agent_id}.",
         topic=topic,
         consensus_keyword=consensus_keyword,
-        context_files=context_files or "(No context files provided)",
         history=history or "(No previous messages - you are starting the discussion)",
         agent_id=agent_id,
         team_list=team_list,
@@ -180,7 +170,6 @@ def build_team_member_prompt(
     persona: str,
     topic: str,
     lead_id: str,
-    context_files: str,
     history: str,
 ) -> str:
     """Build prompt for team member in orchestrated mode."""
@@ -188,7 +177,6 @@ def build_team_member_prompt(
         persona=persona or f"You are team member {agent_id}.",
         topic=topic,
         lead_id=lead_id,
-        context_files=context_files or "(No context files provided)",
         history=history or "(No previous messages - waiting for lead's direction)",
         agent_id=agent_id,
     )

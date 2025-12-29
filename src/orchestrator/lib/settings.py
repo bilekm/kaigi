@@ -26,6 +26,11 @@ class AgentConfig(BaseModel):
     timeout: int = Field(default=300, ge=1, le=86400)
     description: str = ""
     model: str | None = None  # Model to use (e.g., "gemini-3-pro-preview")
+    spawn_mode: bool = Field(
+        default=False,
+        description="Use spawn-per-prompt mode instead of persistent PTY. "
+        "Required for agents that don't work well with PTY (claude, copilot, etc.)"
+    )
 
     def resolve_env_vars(self) -> "AgentConfig":
         """Resolve environment variable references in env dict.
@@ -43,6 +48,7 @@ class AgentConfig(BaseModel):
             timeout=self.timeout,
             description=self.description,
             model=self.model,
+            spawn_mode=self.spawn_mode,
         )
 
 

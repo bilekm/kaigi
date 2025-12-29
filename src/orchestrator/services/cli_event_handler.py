@@ -1,0 +1,155 @@
+"""CLI-based event handler for interactive conversations."""
+
+from __future__ import annotations
+
+import asyncio
+import click
+
+from orchestrator.services.event_handler import ConversationEventHandler
+
+
+class CliEventHandler(ConversationEventHandler):
+    """Event handler that outputs to CLI using Click."""
+
+    def __init__(self, show_agent_output: bool = True, max_output_lines: int = 5):
+        """Initialize CLI event handler.
+
+        Args:
+            show_agent_output: Whether to display agent responses
+            max_output_lines: Maximum lines of agent output to show
+        """
+        self.show_agent_output = show_agent_output
+        self.max_output_lines = max_output_lines
+
+    def on_conversation_start(
+        self,
+        workflow_name: str,
+        topic: str,
+        agents: list[str],
+        collaboration: str,
+        lead: str | None = None,
+    ) -> None:
+        """Display conversation startup info."""
+        click.echo(f"Starting conversation: {workflow_name}")
+        click.echo(f"Topic: {topic[:100]}...")
+        if collaboration == "orchestrated":
+            click.echo(f"Mode: Orchestrated (Lead: {lead})")
+            # Filter out lead from agents list for display
+            team = [a for a in agents if a != lead]
+            click.echo(f"Team: {', '.join(team)}")
+        else:
+            click.echo(f"Mode: Team collaboration")
+            click.echo(f"Agents: {', '.join(agents)}")
+        click.echo()
+
+    def on_round_start(self, round_num: int) -> None:
+        """Display round header."""
+        click.echo(f"--- Round {round_num} ---")
+
+    def on_agent_turn_start(self, agent_id: str) -> None:
+        """Show agent is thinking."""
+        click.echo(f"  [{agent_id}] thinking...", nl=False)
+
+    def on_agent_turn_complete(
+        self,
+        agent_id: str,
+        duration: float,
+        output: str,
+    ) -> None:
+        """Show agent response."""
+        click.echo(f" done ({duration:.1f}s)")
+
+        if not self.show_agent_output:
+            return
+
+        # Show truncated response
+        display = output[:300] + "..." if len(output) > 300 else output
+        lines = display.split("\n")
+        for i, line in enumerate(lines[:self.max_output_lines]):
+            click.echo(f"    {line}")
+        if len(lines) > self.max_output_lines:
+            click.echo("    ...")
+        click.echo()
+
+    def on_agent_turn_error(
+        self,
+        agent_id: str,
+        error: str,
+    ) -> None:
+        """Show agent error."""
+        click.echo(f" ERROR: {error}")
+
+    def on_consensus_reached(self, content: str) -> None:
+        """Display consensus banner."""
+        click.echo()
+        click.echo("=" * 50)
+        click.echo("CONSENSUS REACHED")
+        click.echo("=" * 50)
+        if content:
+            click.echo(content)
+        click.echo("=" * 50)
+        click.echo("[Type 'approve' to accept, or provide feedback to continue]")
+
+    async def prompt_user_approval(self, content: str) -> bool:
+        """Prompt user to approve consensus."""
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, input, "> ")
+
+        if response.lower() == "approve":
+            return True
+
+        return False
+
+    async def prompt_topic(self, workflow_name: str, agents: list[str]) -> str | None:
+        """Prompt user for topic."""
+        click.echo(f"Starting conversation: {workflow_name}")
+        click.echo(f"Agents: {', '.join(agents)}")
+        click.echo()
+        click.echo("Enter topic/prompt (/help for commands, 'quit' to exit):")
+
+        while True:
+            loop = asyncio.get_event_loop()
+            topic = await loop.run_in_executor(None, input, "> ")
+            topic = topic.strip()
+
+            if topic.lower() in ("quit", "/quit"):
+                return None
+            if topic.startswith("/"):
+                # Commands not supported in topic prompt
+                click.echo("Commands not available here. Enter a topic or 'quit'.")
+                continue
+            if topic:
+                return topic
+
+            click.echo("Please enter a topic or command.")
+
+    async def prompt_user_input(self) -> str | None:
+        """Prompt user for input between rounds."""
+        click.echo("[Enter to continue, /help for commands, or type message]")
+
+        loop = asyncio.get_event_loop()
+        user_input = await loop.run_in_executor(None, input, "> ")
+
+        stripped = user_input.strip()
+
+        if stripped.lower() == "quit":
+            return "__quit__"
+
+        return stripped if stripped else None
+
+    def on_command_result(self, command: str, result: str) -> None:
+        """Display command result."""
+        click.echo(result)
+
+    def on_conversation_complete(
+        self,
+        status: str,
+        rounds: int,
+        consensus_status: str | None = None,
+    ) -> None:
+        """Display completion message."""
+        pass  # CliEventHandler doesn't need special completion output
+
+    def on_max_rounds_reached(self, max_rounds: int) -> None:
+        """Display max rounds message."""
+        click.echo("\nMax rounds reached without consensus.")

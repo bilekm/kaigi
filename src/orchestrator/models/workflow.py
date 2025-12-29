@@ -156,7 +156,7 @@ class ConversationWorkflow(BaseModel):
     description: str = ""
 
     agents: Annotated[list[ConversationAgent], Field(min_length=2)]
-    topic: Annotated[str, Field(min_length=1)]  # The discussion topic/task
+    topic: str = ""  # Optional: if empty, prompt user at runtime
 
     # Collaboration mode
     # - "team": All agents equal, round-robin, consensus-based (default)
