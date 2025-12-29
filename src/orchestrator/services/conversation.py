@@ -216,8 +216,8 @@ class ConversationExecutor:
                             exec_prompt = self._build_execution_prompt(record, first_agent)
                             record.add_message(MessageRole.SYSTEM, exec_prompt)
 
-                            # Execute the changes
-                            await self._agent_turn(record, first_agent, workflow_id)
+                            # Execute the changes WITH write permission
+                            await self._agent_turn(record, first_agent, workflow_id, with_write_permission=True)
                             self.store.save_conversation(workflow_id, record)
 
                             record.complete()
@@ -257,6 +257,7 @@ class ConversationExecutor:
         record: ConversationRecord,
         agent: ConversationAgent,
         workflow_id: str,
+        with_write_permission: bool = False,
     ) -> None:
         """Execute a single agent's turn."""
         turn = TurnResult(agent_id=agent.id)
@@ -270,7 +271,7 @@ class ConversationExecutor:
 
         # Execute agent command
         try:
-            output = await self._execute_agent(agent, prompt)
+            output = await self._execute_agent(agent, prompt, with_write_permission=with_write_permission)
 
             # Add response as message
             msg = record.add_message(MessageRole.AGENT, output, agent_id=agent.id)
@@ -340,11 +341,22 @@ class ConversationExecutor:
         self,
         agent: ConversationAgent,
         prompt: str,
+        with_write_permission: bool = False,
     ) -> str:
         """Execute agent command and return output.
 
         Tries persistent agent first (via Unix socket), falls back to spawning.
+
+        Args:
+            agent: The agent to execute
+            prompt: The prompt to send
+            with_write_permission: If True, add --permission-mode acceptEdits to args
         """
+        # If write permission requested, must use spawn mode (persistent agents
+        # were started without write permission)
+        if with_write_permission:
+            return await self._execute_agent_spawn(agent, prompt, with_write_permission=True)
+
         # Check for persistent agent first
         agent_id = agent.agent or agent.id  # Use settings reference or ID
 
@@ -384,8 +396,15 @@ class ConversationExecutor:
         self,
         agent: ConversationAgent,
         prompt: str,
+        with_write_permission: bool = False,
     ) -> str:
-        """Execute agent by spawning a new process."""
+        """Execute agent by spawning a new process.
+
+        Args:
+            agent: The agent to execute
+            prompt: The prompt to send
+            with_write_permission: If True, add --permission-mode acceptEdits to args
+        """
         global _current_process
 
         # Resolve agent configuration
@@ -397,6 +416,17 @@ class ConversationExecutor:
 
         # Replace {{prompt}} placeholder in args
         args = [arg.replace("{{prompt}}", effective_prompt) for arg in args_template]
+
+        # Add write permission if requested (for execution phase)
+        if with_write_permission:
+            # Insert --permission-mode acceptEdits before -p flag
+            for i, arg in enumerate(args):
+                if arg == "-p" and i + 1 < len(args):
+                    # Insert permission mode before the prompt flag
+                    args.insert(i, "--permission-mode")
+                    args.insert(i + 1, "acceptEdits")
+                    break
+
         cmd = [command] + args
 
         env = os.environ.copy()
