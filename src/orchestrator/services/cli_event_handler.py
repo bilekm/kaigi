@@ -1,15 +1,22 @@
-"""CLI-based event handler for interactive conversations."""
+"""CLI-based event handler for interactive conversations.
+
+Provides readline support for history navigation, line editing,
+and tab completion.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import atexit
+from pathlib import Path
+
 import click
 
 from orchestrator.services.event_handler import ConversationEventHandler
 
 
 class CliEventHandler(ConversationEventHandler):
-    """Event handler that outputs to CLI using Click."""
+    """Event handler that outputs to CLI using Click with readline support."""
 
     def __init__(self, show_agent_output: bool = True, max_output_lines: int = 5):
         """Initialize CLI event handler.
@@ -20,6 +27,59 @@ class CliEventHandler(ConversationEventHandler):
         """
         self.show_agent_output = show_agent_output
         self.max_output_lines = max_output_lines
+        self._setup_readline()
+
+    def _setup_readline(self) -> None:
+        """Configure readline for history and tab completion."""
+        try:
+            import readline
+        except ImportError:
+            return  # readline not available
+
+        # History file
+        history_file = Path.home() / ".orchestrator" / "history"
+        history_file.parent.mkdir(parents=True, exist_ok=True)
+        if history_file.exists():
+            try:
+                readline.read_history_file(str(history_file))
+            except OSError:
+                pass
+
+        # Save history on exit
+        def save_history():
+            try:
+                readline.set_history_length(1000)
+                readline.write_history_file(str(history_file))
+            except OSError:
+                pass
+        atexit.register(save_history)
+
+        # Tab completion for slash commands
+        commands = [
+            "/help", "/agents", "/quit", "/add", "/remove",
+            "/model", "/persona", "/save", "/config", "approve"
+        ]
+
+        def completer(text: str, state: int) -> str | None:
+            options = [c for c in commands if c.startswith(text)]
+            if state < len(options):
+                return options[state]
+            return None
+
+        readline.set_completer(completer)
+        readline.parse_and_bind("tab: complete")
+
+    async def _get_input(self, prompt: str = "> ") -> str:
+        """Get input from user with readline support.
+
+        Args:
+            prompt: The prompt string to display
+
+        Returns:
+            User input string
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, input, prompt)
 
     def on_conversation_start(
         self,
@@ -92,8 +152,7 @@ class CliEventHandler(ConversationEventHandler):
 
     async def prompt_user_approval(self, content: str) -> bool:
         """Prompt user to approve consensus."""
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, input, "> ")
+        response = await self._get_input("> ")
 
         if response.lower() == "approve":
             return True
@@ -110,8 +169,7 @@ class CliEventHandler(ConversationEventHandler):
         click.echo("Enter topic/prompt (/help for commands, 'quit' to exit):")
 
         while True:
-            loop = asyncio.get_event_loop()
-            topic = await loop.run_in_executor(None, input, "> ")
+            topic = await self._get_input("> ")
             topic = topic.strip()
 
             if topic.lower() in ("quit", "/quit"):
@@ -157,8 +215,7 @@ class CliEventHandler(ConversationEventHandler):
         """Prompt user for input between rounds."""
         click.echo("[Enter to continue, /help for commands, or type message]")
 
-        loop = asyncio.get_event_loop()
-        user_input = await loop.run_in_executor(None, input, "> ")
+        user_input = await self._get_input("> ")
 
         stripped = user_input.strip()
 
