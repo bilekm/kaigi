@@ -238,8 +238,8 @@ class ConversationExecutor:
                             exec_prompt = self._build_execution_prompt(record, first_agent)
                             record.add_message(MessageRole.SYSTEM, exec_prompt)
 
-                            # Execute the changes WITH write permission
-                            await self._agent_turn(record, first_agent, workflow_id, with_write_permission=True)
+                            # Execute the changes WITH write permission (execution mode skips conversation history)
+                            await self._agent_turn(record, first_agent, workflow_id, with_write_permission=True, execution_mode=True)
                             self.store.save_conversation(workflow_id, record)
 
                             record.complete()
@@ -543,16 +543,31 @@ class ConversationExecutor:
         agent: ConversationAgent,
         workflow_id: str,
         with_write_permission: bool = False,
+        execution_mode: bool = False,
     ) -> None:
-        """Execute a single agent's turn."""
+        """Execute a single agent's turn.
+
+        Args:
+            record: The conversation record
+            agent: The agent to execute
+            workflow_id: The workflow ID
+            with_write_permission: Whether to grant write permissions
+            execution_mode: If True, skip _build_prompt and use existing messages
+                          (used for execution phase after consensus approval)
+        """
         turn = TurnResult(agent_id=agent.id)
         turn.start()
         record.turn_results.append(turn)
 
         self.event_handler.on_agent_turn_start(agent.id)
 
-        # Build prompt
-        prompt = self._build_prompt(record, agent)
+        # Build prompt (skip if in execution mode - use existing messages)
+        if execution_mode:
+            # In execution mode, use the messages already in the record
+            # (which include the execution prompt we added)
+            prompt = ""
+        else:
+            prompt = self._build_prompt(record, agent)
 
         # Execute agent command with tool support
         try:
