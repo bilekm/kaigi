@@ -1,7 +1,7 @@
 """CLI-based event handler for interactive conversations.
 
 Provides prompt_toolkit support for history navigation, line editing,
-bracketed paste mode (multi-line input), and tab completion.
+automatic bracketed paste mode (multi-line input), and tab completion.
 """
 
 from __future__ import annotations
@@ -78,15 +78,13 @@ class CliEventHandler(ConversationEventHandler):
             history=FileHistory(str(history_file)),
             completer=command_completer,
             enable_history_search=True,
-            # Enable bracketed paste mode for multi-line paste support
-            bracketed_paste=True,
         )
 
     async def _get_input(self, prompt: str = "> ") -> str:
         """Get input from user with prompt_toolkit support.
 
         Uses prompt_toolkit if available for:
-        - Multi-line paste support (bracketed paste mode)
+        - Multi-line paste support (automatic bracketed paste detection)
         - History navigation (up/down arrows)
         - Tab completion
         Falls back to basic input() if prompt_toolkit unavailable.
