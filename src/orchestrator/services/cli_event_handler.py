@@ -247,10 +247,14 @@ class CliEventHandler(ConversationEventHandler):
 
                 if role_id:
                     # Show: role_id - agent_type   PID: xxx
-                    click.echo(f"  {self._agent(role_id):<12} - {self._agent(agent_type):<12}   PID: {pid}")
+                    # Pad plain text before styling (ANSI codes break padding)
+                    role_padded = f"{role_id:<10}"
+                    agent_padded = f"{agent_type:<10}"
+                    click.echo(f"  {self._agent(role_padded)} - {self._agent(agent_padded)}   PID: {pid}")
                 else:
                     # No workflow mapping, just show agent type
-                    click.echo(f"  {self._agent(agent_type):<25}   PID: {pid}")
+                    agent_padded = f"{agent_type:<20}"
+                    click.echo(f"  {self._agent(agent_padded)}   PID: {pid}")
         click.echo()
 
     async def prompt_user_input(self) -> str | None:
