@@ -202,6 +202,24 @@ class ConversationExecutor:
                         )
                         if approved:
                             record.consensus_status = ConsensusStatus.APPROVED
+                            # Enter execution phase - have first agent execute the agreed changes
+                            click.echo()
+                            click.echo("=" * 50)
+                            click.echo("EXECUTION PHASE")
+                            click.echo("=" * 50)
+
+                            # Get first agent to execute the plan
+                            first_agent = self.workflow.agents[0]
+                            click.echo(f"Asking {first_agent.id} to execute the agreed changes...")
+
+                            # Build execution prompt
+                            exec_prompt = self._build_execution_prompt(record, first_agent)
+                            record.add_message(MessageRole.SYSTEM, exec_prompt)
+
+                            # Execute the changes
+                            await self._agent_turn(record, first_agent, workflow_id)
+                            self.store.save_conversation(workflow_id, record)
+
                             record.complete()
                             self.store.save_conversation(workflow_id, record)
                             break
@@ -455,6 +473,42 @@ class ConversationExecutor:
                 consensus_keyword=self.workflow.consensus_keyword,
                 history=history,
             )
+
+    def _build_execution_prompt(
+        self,
+        record: ConversationRecord,
+        agent: ConversationAgent,
+    ) -> str:
+        """Build the prompt for execution phase after consensus approval.
+
+        The first agent is asked to execute the agreed changes.
+        """
+        consensus = record.consensus_content or ""
+
+        return f"""EXECUTION PHASE
+
+The team has reached consensus and the user has approved. You are now responsible for executing the agreed changes.
+
+**Consensus:**
+{consensus}
+
+**Your task:**
+1. Analyze what needs to be done based on the consensus
+2. Use the available tools (Read, Edit, etc.) to make the changes
+3. Report back on what you did
+
+**Tools available:**
+- Read files: Use the tool browser to read file contents
+- Edit files: Use the Edit tool to make changes
+- When done, respond with "DONE:" followed by a summary
+
+**Important:**
+- Start by reading the files you need to modify
+- Make changes incrementally
+- If you encounter issues, describe them and suggest alternatives
+
+Begin execution now.
+"""
 
     # Context file limits to prevent DoS
     MAX_CONTEXT_FILES = 50

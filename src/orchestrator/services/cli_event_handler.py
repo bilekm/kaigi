@@ -18,12 +18,12 @@ from orchestrator.services.event_handler import ConversationEventHandler
 class CliEventHandler(ConversationEventHandler):
     """Event handler that outputs to CLI using Click with readline support."""
 
-    def __init__(self, show_agent_output: bool = True, max_output_lines: int = 5):
+    def __init__(self, show_agent_output: bool = True, max_output_lines: int = 0):
         """Initialize CLI event handler.
 
         Args:
             show_agent_output: Whether to display agent responses
-            max_output_lines: Maximum lines of agent output to show
+            max_output_lines: Maximum lines of agent output to show (0 = unbounded/full output)
         """
         self.show_agent_output = show_agent_output
         self.max_output_lines = max_output_lines
@@ -122,13 +122,18 @@ class CliEventHandler(ConversationEventHandler):
         if not self.show_agent_output:
             return
 
-        # Show truncated response
-        display = output[:300] + "..." if len(output) > 300 else output
-        lines = display.split("\n")
-        for i, line in enumerate(lines[:self.max_output_lines]):
-            click.echo(f"    {line}")
-        if len(lines) > self.max_output_lines:
-            click.echo("    ...")
+        # Show full or truncated response
+        if self.max_output_lines == 0:
+            # Show full output
+            click.echo(output)
+        else:
+            # Show truncated response
+            lines = output.split("\n")
+            for i, line in enumerate(lines[:self.max_output_lines]):
+                click.echo(f"    {line}")
+            if len(lines) > self.max_output_lines:
+                remaining = len(lines) - self.max_output_lines
+                click.echo(f"    ... ({remaining} more lines)")
         click.echo()
 
     def on_agent_turn_error(
