@@ -291,6 +291,10 @@ class ConversationExecutor:
         Returns:
             List of parsed ToolCall objects
         """
+        # Strip thinking blocks from agent output (defensive measure)
+        # Some agents output <thinking>...</thinking> blocks which can confuse parsing
+        text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL)
+
         tool_calls = []
 
         # Try strict JSON-per-line parsing first (fast path)

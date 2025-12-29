@@ -1,13 +1,12 @@
 """CLI-based event handler for interactive conversations.
 
-Provides readline support for history navigation, line editing,
-and tab completion.
+Provides prompt_toolkit support for history navigation, line editing,
+bracketed paste mode (multi-line input), and tab completion.
 """
 
 from __future__ import annotations
 
 import asyncio
-import atexit
 from pathlib import Path
 
 import click
@@ -16,7 +15,7 @@ from orchestrator.services.event_handler import ConversationEventHandler
 
 
 class CliEventHandler(ConversationEventHandler):
-    """Event handler that outputs to CLI using Click with readline support."""
+    """Event handler that outputs to CLI using Click with prompt_toolkit support."""
 
     def __init__(self, show_agent_output: bool = True, max_output_lines: int = 0):
         """Initialize CLI event handler.
@@ -28,7 +27,7 @@ class CliEventHandler(ConversationEventHandler):
         self.show_agent_output = show_agent_output
         self.max_output_lines = max_output_lines
         self._workflow_agents: dict[str, str] = {}  # Maps agent type to role ID
-        self._setup_readline()
+        self._setup_session()
 
     # Color helper methods
     def _cmd(self, text: str) -> str:
@@ -51,48 +50,46 @@ class CliEventHandler(ConversationEventHandler):
         """Format consensus text in green bold."""
         return click.style(text, fg="green", bold=True)
 
-    def _setup_readline(self) -> None:
-        """Configure readline for history and tab completion."""
+    def _setup_session(self) -> None:
+        """Configure prompt_toolkit PromptSession for history and tab completion."""
         try:
-            import readline
+            from prompt_toolkit import PromptSession
+            from prompt_toolkit.completion import WordCompleter
+            from prompt_toolkit.history import FileHistory
         except ImportError:
-            return  # readline not available
+            # prompt_toolkit not available, will fall back to basic input
+            self.session = None
+            return
 
         # History file
-        history_file = Path.home() / ".orchestrator" / "history"
-        history_file.parent.mkdir(parents=True, exist_ok=True)
-        if history_file.exists():
-            try:
-                readline.read_history_file(str(history_file))
-            except OSError:
-                pass
-
-        # Save history on exit
-        def save_history():
-            try:
-                readline.set_history_length(1000)
-                readline.write_history_file(str(history_file))
-            except OSError:
-                pass
-        atexit.register(save_history)
+        history_dir = Path.home() / ".orchestrator"
+        history_dir.mkdir(parents=True, exist_ok=True)
+        history_file = history_dir / "history"
 
         # Tab completion for slash commands
         commands = [
             "/help", "/agents", "/quit", "/add", "/remove",
             "/model", "/persona", "/save", "/config", "approve"
         ]
+        command_completer = WordCompleter(commands, ignore_case=True)
 
-        def completer(text: str, state: int) -> str | None:
-            options = [c for c in commands if c.startswith(text)]
-            if state < len(options):
-                return options[state]
-            return None
-
-        readline.set_completer(completer)
-        readline.parse_and_bind("tab: complete")
+        # Create session with history and completer
+        self.session = PromptSession(
+            history=FileHistory(str(history_file)),
+            completer=command_completer,
+            enable_history_search=True,
+            # Enable bracketed paste mode for multi-line paste support
+            bracketed_paste=True,
+        )
 
     async def _get_input(self, prompt: str = "> ") -> str:
-        """Get input from user with readline support.
+        """Get input from user with prompt_toolkit support.
+
+        Uses prompt_toolkit if available for:
+        - Multi-line paste support (bracketed paste mode)
+        - History navigation (up/down arrows)
+        - Tab completion
+        Falls back to basic input() if prompt_toolkit unavailable.
 
         Args:
             prompt: The prompt string to display
@@ -100,8 +97,13 @@ class CliEventHandler(ConversationEventHandler):
         Returns:
             User input string
         """
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, input, prompt)
+        if self.session is not None:
+            # Use prompt_toolkit for proper multi-line paste support
+            return await self.session.prompt_async(prompt)
+        else:
+            # Fallback to basic input
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, input, prompt)
 
     def on_conversation_start(
         self,
