@@ -27,6 +27,7 @@ class CliEventHandler(ConversationEventHandler):
         """
         self.show_agent_output = show_agent_output
         self.max_output_lines = max_output_lines
+        self._workflow_agents: dict[str, str] = {}  # Maps agent type to role ID
         self._setup_readline()
 
     # Color helper methods
@@ -185,9 +186,13 @@ class CliEventHandler(ConversationEventHandler):
 
         return False
 
-    async def prompt_topic(self, workflow_name: str, agents: list[str]) -> str | None:
+    async def prompt_topic(self, workflow_name: str, agents: list[str], agent_types: dict[str, str] | None = None) -> str | None:
         """Prompt user for topic."""
         from orchestrator.lib.agent_client import list_running_agents
+
+        # Store the agent type mapping for display in _show_running_agents
+        if agent_types:
+            self._workflow_agents = agent_types
 
         click.echo(f"Starting conversation: {workflow_name}")
         click.echo(f"Agents: {', '.join(self._agent(a) for a in agents)}")
@@ -234,7 +239,18 @@ class CliEventHandler(ConversationEventHandler):
         else:
             click.echo("Running agents:")
             for agent in running:
-                click.echo(f"  {self._agent(agent['id']):<20} PID: {agent['pid'] or 'N/A':<10}")
+                agent_type = agent['id']  # e.g., 'claude', 'copilot', 'glm'
+                pid = agent['pid'] or 'N/A'
+
+                # Get role ID from workflow mapping if available
+                role_id = self._workflow_agents.get(agent_type, '')
+
+                if role_id:
+                    # Show: role_id - agent_type   PID: xxx
+                    click.echo(f"  {self._agent(role_id):<12} - {self._agent(agent_type):<12}   PID: {pid}")
+                else:
+                    # No workflow mapping, just show agent type
+                    click.echo(f"  {self._agent(agent_type):<25}   PID: {pid}")
         click.echo()
 
     async def prompt_user_input(self) -> str | None:

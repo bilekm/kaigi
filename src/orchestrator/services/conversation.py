@@ -111,8 +111,15 @@ class ConversationExecutor:
             topic_was_prompted = False
             if not self.workflow.topic:
                 agent_ids = [a.id for a in self.workflow.agents]
+                # Build agent type mapping: {agent_type: role_id}
+                # e.g., {'claude': 'reviewer', 'copilot': 'architect', 'glm': 'analyst'}
+                agent_types = {}
+                for agent in self.workflow.agents:
+                    agent_type = agent.agent if agent.agent else agent.id
+                    agent_types[agent_type] = agent.id
+
                 topic = await self.event_handler.prompt_topic(
-                    self.workflow.name, agent_ids
+                    self.workflow.name, agent_ids, agent_types
                 )
                 if topic is None:
                     record.cancel()

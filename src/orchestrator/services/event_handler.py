@@ -109,12 +109,14 @@ class ConversationEventHandler(ABC):
         """
 
     @abstractmethod
-    async def prompt_topic(self, workflow_name: str, agents: list[str]) -> str | None:
+    async def prompt_topic(self, workflow_name: str, agents: list[str], agent_types: dict[str, str] | None = None) -> str | None:
         """Prompt user for the discussion topic.
 
         Args:
             workflow_name: Name of the workflow
-            agents: List of agent IDs
+            agents: List of agent IDs (role IDs like 'architect', 'reviewer')
+            agent_types: Optional dict mapping agent type to role ID
+                        (e.g., {'claude': 'reviewer', 'copilot': 'architect'})
 
         Returns:
             The topic string, or None if user wants to quit
@@ -207,7 +209,7 @@ class NullEventHandler(ConversationEventHandler):
         # In non-interactive mode, auto-approve
         return True
 
-    async def prompt_topic(self, workflow_name: str, agents: list[str]) -> str | None:
+    async def prompt_topic(self, workflow_name: str, agents: list[str], agent_types: dict[str, str] | None = None) -> str | None:
         return None
 
     async def prompt_user_input(self) -> str | None:
