@@ -619,6 +619,151 @@ def agents_stop(agent_id: str | None, stop_all: bool) -> None:
         sys.exit(1)
 
 
+@agents.command("restart")
+@click.argument("name")
+@click.option("--id", "agent_id", help="Custom agent ID (default: same as name)")
+@click.option("--background", "-b", is_flag=True, help="Run in background (daemonize)")
+@click.option("--terminal", "-t", is_flag=True, help="Open in new visible terminal window")
+def agents_restart(name: str, agent_id: str | None, background: bool, terminal: bool) -> None:
+    """Restart a persistent agent server.
+
+    Stops the agent if running, then starts it again.
+
+    Examples:
+
+        # Restart Claude agent in foreground
+        orchestrator agents restart claude
+
+        # Restart in background
+        orchestrator agents restart claude --background
+
+        # Restart in new terminal window
+        orchestrator agents restart claude --terminal
+
+        # Restart with custom ID
+        orchestrator agents restart claude --id claude-1
+    """
+    from orchestrator.lib.agent_client import is_agent_running, stop_agent
+    from orchestrator.lib.settings import get_agent_config
+
+    config = get_agent_config(name)
+    if not config:
+        click.echo(f"Agent '{name}' not found in settings.")
+        click.echo("Run 'orchestrator agents list' to see available agents.")
+        sys.exit(1)
+
+    target_id = agent_id or name
+
+    # Stop if running
+    if is_agent_running(target_id):
+        click.echo(f"Stopping agent '{target_id}'...")
+        if stop_agent(target_id):
+            click.echo(f"Agent '{target_id}' stopped.")
+        else:
+            click.echo(f"Failed to stop agent '{target_id}'.")
+            sys.exit(1)
+        # Brief pause for cleanup
+        import time
+        time.sleep(0.5)
+    else:
+        click.echo(f"Agent '{target_id}' was not running.")
+
+    # Start the agent
+    click.echo(f"Starting agent '{target_id}'...")
+
+    # Build command - for persistent agent (interactive mode):
+    # - Remove -p/--print (non-interactive flag)
+    # - Remove {{prompt}} placeholder
+    # - Remove --output-format (only works with -p)
+    command = config.command
+    env = config.env
+    args = []
+    skip_next = False
+    for arg in config.args:
+        if skip_next:
+            skip_next = False
+            continue
+        # Skip -p/--print and its argument (the prompt placeholder)
+        if arg in ("-p", "--print"):
+            skip_next = True
+            continue
+        # Skip --output-format (only for non-interactive mode)
+        if arg == "--output-format":
+            skip_next = True
+            continue
+        # Skip any arg containing the prompt placeholder
+        if "{{prompt}}" in arg:
+            continue
+        args.append(arg)
+
+    if terminal:
+        # Open in new terminal window
+        click.echo(f"Opening terminal for agent '{target_id}'...")
+
+        if _start_agent_in_terminal(target_id, command, args, env):
+            click.echo(f"Terminal opened for '{target_id}'")
+            # Wait a moment and check if it started
+            import time
+            time.sleep(1)
+            if is_agent_running(target_id):
+                click.echo(f"Agent '{target_id}' restarted successfully.")
+            else:
+                click.echo(f"Agent '{target_id}' may not have started properly.")
+        else:
+            click.echo(f"Failed to open terminal for '{target_id}'.")
+            sys.exit(1)
+    else:
+        # Start in foreground or background
+        if background:
+            # Daemonize: fork to background
+            args = [command] + args
+            env_dict = os.environ.copy()
+            env_dict.update(env)
+
+            process = subprocess.Popen(
+                args,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=env_dict,
+                start_new_session=True,  # Detach from parent
+            )
+
+            # Brief pause to let it start
+            import time
+            time.sleep(0.5)
+
+            if is_agent_running(target_id):
+                click.echo(f"Agent '{target_id}' restarted successfully (PID: {process.pid}).")
+            else:
+                click.echo(f"Agent '{target_id}' failed to start.")
+                sys.exit(1)
+        else:
+            # Foreground - for restart, we still want to daemonize since the old one is stopped
+            # This makes restart behave consistently
+            args = [command] + args
+            env_dict = os.environ.copy()
+            env_dict.update(env)
+
+            process = subprocess.Popen(
+                args,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=env_dict,
+                start_new_session=True,
+            )
+
+            import time
+            time.sleep(0.5)
+
+            if is_agent_running(target_id):
+                click.echo(f"Agent '{target_id}' restarted successfully (PID: {process.pid}).")
+                click.echo("Use 'orchestrator agents running' to verify.")
+            else:
+                click.echo(f"Agent '{target_id}' may not have started properly.")
+
+
 @agents.command("running")
 @json_option
 def agents_running(use_json: bool) -> None:
