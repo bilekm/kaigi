@@ -1,0 +1,44 @@
+# Orchestrator Agent Settings
+# Configure AI agents that can be used in conversation workflows.
+#
+# Usage in workflow.yaml:
+#   agents:
+#     - id: my-agent
+#       agent: claude    # Reference by name
+#       model: opus-4    # Override model (optional)
+#       persona: "..."
+#
+# Environment variables can be referenced with ${VAR_NAME} syntax.
+
+agents:
+  # Claude Code CLI
+  claude:
+    command: claude
+    args: ["-p", "{{prompt}}", "--output-format", "text", "--permission-mode", "acceptEdits"]
+    timeout: 300
+    spawn_mode: true
+    description: "Claude Code CLI"
+    # model: claude-sonnet-4-5  # Default model (optional)
+
+  # GitHub Copilot CLI
+  # Requires: npm install -g @github/copilot && GitHub auth
+  copilot:
+    command: copilot
+    args: ["-p", "{{prompt}}"]
+    timeout: 300
+    spawn_mode: true
+    description: "GitHub Copilot CLI"
+    # model: gemini-3-pro-preview  # Select model
+
+  # GLM via Z.AI (GLM-4.7 model)
+  # Note: API is slower, may need up to 60s timeout
+  glm:
+    command: claude
+    args: ["-p", "{{prompt}}", "--output-format", "text", "--permission-mode", "acceptEdits"]
+    env:
+      ANTHROPIC_BASE_URL: "https://api.z.ai/api/anthropic"
+      ANTHROPIC_AUTH_TOKEN: "***REMOVED***"
+    timeout: 600
+    spawn_mode: true
+    description: "GLM-4.7 via Z.AI"
+
