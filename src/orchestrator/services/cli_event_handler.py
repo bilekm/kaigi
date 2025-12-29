@@ -102,6 +102,8 @@ class CliEventHandler(ConversationEventHandler):
 
     async def prompt_topic(self, workflow_name: str, agents: list[str]) -> str | None:
         """Prompt user for topic."""
+        from orchestrator.lib.agent_client import list_running_agents
+
         click.echo(f"Starting conversation: {workflow_name}")
         click.echo(f"Agents: {', '.join(agents)}")
         click.echo()
@@ -114,14 +116,42 @@ class CliEventHandler(ConversationEventHandler):
 
             if topic.lower() in ("quit", "/quit"):
                 return None
+            if topic == "/help":
+                self._show_topic_help()
+                continue
+            if topic == "/agents":
+                self._show_running_agents()
+                continue
             if topic.startswith("/"):
-                # Commands not supported in topic prompt
-                click.echo("Commands not available here. Enter a topic or 'quit'.")
+                click.echo(f"Unknown command: {topic}. Type /help for available commands.")
                 continue
             if topic:
                 return topic
 
             click.echo("Please enter a topic or command.")
+
+    def _show_topic_help(self) -> None:
+        """Show help for topic prompt."""
+        click.echo()
+        click.echo("Available commands:")
+        click.echo("  /agents    Show running agent servers")
+        click.echo("  /help      Show this help")
+        click.echo("  /quit      Exit")
+        click.echo()
+
+    def _show_running_agents(self) -> None:
+        """Show running agents."""
+        from orchestrator.lib.agent_client import list_running_agents
+
+        click.echo()
+        running = list_running_agents()
+        if not running:
+            click.echo("No agents running.")
+        else:
+            click.echo("Running agents:")
+            for agent in running:
+                click.echo(f"  {agent['id']:<20} PID: {agent['pid'] or 'N/A':<10}")
+        click.echo()
 
     async def prompt_user_input(self) -> str | None:
         """Prompt user for input between rounds."""
