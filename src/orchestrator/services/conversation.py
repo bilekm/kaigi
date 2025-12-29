@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import glob
+import json
 import os
 import signal
 from datetime import datetime, timezone
@@ -42,6 +43,7 @@ from orchestrator.models.execution import (
 from orchestrator.models.workflow import ConversationAgent, ConversationWorkflow
 from orchestrator.services.event_handler import ConversationEventHandler, NullEventHandler
 from orchestrator.services.store import WorkflowStore
+from orchestrator.services.tools import CapabilityChecker, ToolCall, ToolExecutor, ToolResult
 
 
 # Global reference for signal handling
@@ -259,6 +261,133 @@ class ConversationExecutor:
         finally:
             self.store.release_global_lock()
 
+    def _parse_tool_calls(self, text: str) -> list[ToolCall]:
+        """Parse tool calls from agent output.
+
+        Looks for JSON-formatted tool calls in the text.
+        Format: {"type": "tool_call", "id": "t1", "tool": "read_file", "args": {...}}
+
+        Args:
+            text: Agent output text
+
+        Returns:
+            List of parsed ToolCall objects
+        """
+        tool_calls = []
+
+        # Split into lines and look for JSON objects
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+
+            # Try to parse as JSON
+            try:
+                data = json.loads(line)
+                if isinstance(data, dict) and data.get("type") == "tool_call":
+                    tool_call = ToolCall(**data)
+                    tool_calls.append(tool_call)
+            except (json.JSONDecodeError, ValueError):
+                # Not a tool call line, skip
+                continue
+
+        return tool_calls
+
+    async def _execute_tool_loop(
+        self,
+        agent: ConversationAgent,
+        initial_prompt: str,
+        with_write_permission: bool = False,
+    ) -> str:
+        """Execute agent with tool support loop.
+
+        Implements the ReAct pattern:
+        1. Send prompt to agent
+        2. Parse tool calls from response
+        3. Check capabilities and execute tools
+        4. Feed tool results back to agent
+        5. Repeat until agent produces final response (no tool calls)
+
+        Args:
+            agent: The agent to execute
+            initial_prompt: Initial prompt to send
+            with_write_permission: Whether to grant write permissions
+
+        Returns:
+            Final agent response (text only, no tool calls)
+        """
+        # Initialize tool executor and capability checker
+        workspace_root = Path.cwd()
+        tool_executor = ToolExecutor(workspace_root)
+
+        # Adjust permissions based on write_permission flag
+        permissions = agent.permissions.copy()
+        if with_write_permission and "write:*" not in permissions:
+            permissions.append("write:*")
+
+        capability_checker = CapabilityChecker(permissions, workspace_root)
+
+        # Start with initial prompt
+        current_prompt = initial_prompt
+        max_tool_iterations = 10  # Prevent infinite loops
+
+        for iteration in range(max_tool_iterations):
+            # Execute agent
+            output = await self._execute_agent(agent, current_prompt, with_write_permission=with_write_permission)
+
+            # Parse tool calls from output
+            tool_calls = self._parse_tool_calls(output)
+
+            if not tool_calls:
+                # No tool calls - this is the final response
+                return output
+
+            # Process tool calls
+            tool_results = []
+            for tool_call in tool_calls:
+                self.logger.info(
+                    "Tool call requested",
+                    agent_id=agent.id,
+                    tool=tool_call.tool,
+                    tool_id=tool_call.id,
+                )
+
+                # Check capability
+                decision, reason = capability_checker.check_capability(tool_call)
+
+                if decision == "denied":
+                    # Capability denied
+                    result = ToolResult(
+                        id=tool_call.id,
+                        status="error",
+                        content=f"Permission denied: {reason}",
+                    )
+                    self.logger.warning(
+                        "Tool call denied",
+                        agent_id=agent.id,
+                        tool=tool_call.tool,
+                        reason=reason,
+                    )
+                else:
+                    # Execute tool
+                    result = await tool_executor.execute(tool_call)
+
+                tool_results.append(result)
+
+            # Build next prompt with tool results
+            results_text = "\n".join(
+                result.model_dump_json() for result in tool_results
+            )
+            current_prompt = f"Tool results:\n{results_text}\n\nContinue your response:"
+
+        # Max iterations reached - return last output
+        self.logger.warning(
+            "Tool loop max iterations reached",
+            agent_id=agent.id,
+            iterations=max_tool_iterations,
+        )
+        return output
+
     async def _agent_turn(
         self,
         record: ConversationRecord,
@@ -276,9 +405,9 @@ class ConversationExecutor:
         # Build prompt
         prompt = self._build_prompt(record, agent)
 
-        # Execute agent command
+        # Execute agent command with tool support
         try:
-            output = await self._execute_agent(agent, prompt, with_write_permission=with_write_permission)
+            output = await self._execute_tool_loop(agent, prompt, with_write_permission=with_write_permission)
 
             # Add response as message
             msg = record.add_message(MessageRole.AGENT, output, agent_id=agent.id)
@@ -531,18 +660,39 @@ The team has reached consensus and the user has approved. You are now responsibl
 
 **Your task:**
 1. Analyze what needs to be done based on the consensus
-2. Use the available tools (Read, Edit, etc.) to make the changes
+2. Use the available tools to make the changes
 3. Report back on what you did
 
-**Tools available:**
-- Read files: Use the tool browser to read file contents
-- Edit files: Use the Edit tool to make changes
-- When done, respond with "DONE:" followed by a summary
+**Available Tools:**
+
+You have access to the following tools. To use a tool, output a JSON object on its own line:
+
+1. **read_file** - Read file contents
+   Usage: {{"type": "tool_call", "id": "t1", "tool": "read_file", "args": {{"path": "src/file.py"}}}}
+
+2. **write_file** - Write content to a file (creates parent dirs if needed)
+   Usage: {{"type": "tool_call", "id": "t2", "tool": "write_file", "args": {{"path": "src/file.py", "content": "..."}}}}
+
+3. **exec_bash** - Execute a bash command in workspace directory
+   Usage: {{"type": "tool_call", "id": "t3", "tool": "exec_bash", "args": {{"command": "ls -la"}}}}
+
+**Tool Response Format:**
+
+After each tool call, you will receive a JSON response:
+- Success: {{"type": "tool_result", "id": "t1", "status": "ok", "content": "..."}}
+- Error: {{"type": "tool_result", "id": "t1", "status": "error", "content": "..."}}
+
+**Workflow:**
+1. Call a tool by outputting the JSON on its own line
+2. Wait for the tool result
+3. Continue with more tool calls or provide your final response
+4. When done, provide a summary starting with "DONE:"
 
 **Important:**
-- Start by reading the files you need to modify
-- Make changes incrementally
-- If you encounter issues, describe them and suggest alternatives
+- All file paths are relative to the workspace root
+- Use read_file before editing to understand the current state
+- Make changes incrementally and verify each step
+- If a tool fails, the error will explain why
 
 Begin execution now.
 """
