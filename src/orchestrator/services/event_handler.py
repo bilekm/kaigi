@@ -98,6 +98,15 @@ class ConversationEventHandler(ABC):
         """
 
     @abstractmethod
+    def on_consensus_too_early(self, current_round: int, min_rounds: int) -> None:
+        """Called when consensus keyword detected but min_rounds not yet reached.
+
+        Args:
+            current_round: The current round number
+            min_rounds: Minimum rounds required before consensus
+        """
+
+    @abstractmethod
     async def prompt_user_approval(self, content: str) -> bool:
         """Prompt user to approve or reject the consensus.
 
@@ -222,6 +231,9 @@ class NullEventHandler(ConversationEventHandler):
         pass
 
     def on_consensus_reached(self, content: str) -> None:
+        pass
+
+    def on_consensus_too_early(self, current_round: int, min_rounds: int) -> None:
         pass
 
     async def prompt_user_approval(self, content: str) -> bool:

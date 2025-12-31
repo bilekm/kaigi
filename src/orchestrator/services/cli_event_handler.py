@@ -177,6 +177,15 @@ class CliEventHandler(ConversationEventHandler):
         click.secho("=" * 50, fg="green")
         click.echo("[Type 'approve' to accept, or provide feedback to continue]")
 
+    def on_consensus_too_early(self, current_round: int, min_rounds: int) -> None:
+        """Display message when consensus detected too early."""
+        click.echo()
+        click.secho(
+            f"⚠️  Consensus proposal detected in round {current_round}, "
+            f"waiting for team review (min {min_rounds} rounds required)...",
+            fg="yellow",
+        )
+
     async def prompt_user_approval(self, content: str) -> bool:
         """Prompt user to approve consensus."""
         response = await self._get_input("> ")

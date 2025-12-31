@@ -301,6 +301,7 @@ class TestAgentResolution:
             ],
             topic="Test topic",
             max_rounds=1,
+            min_rounds=1,  # Must be <= max_rounds
         )
 
         executor = ConversationExecutor(

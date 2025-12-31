@@ -169,6 +169,7 @@ class ConversationWorkflow(BaseModel):
     lead: str | None = None  # Agent ID of lead (required for orchestrated)
 
     max_rounds: int = Field(default=10, ge=1, le=100)
+    min_rounds: int = Field(default=2, ge=1, le=100)  # Minimum rounds before consensus allowed
     turn_order: Literal["round_robin", "flexible"] = "round_robin"
     context_files: list[str] = Field(default_factory=list)  # Glob patterns
     preload_context: bool = Field(default=False)  # Whether to pre-load context files into prompt
@@ -221,6 +222,16 @@ class ConversationWorkflow(BaseModel):
                     f"Lead agent '{self.lead}' not found. "
                     f"Available agents: {', '.join(agent_ids)}"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def validate_round_limits(self) -> Self:
+        """Validate min_rounds does not exceed max_rounds."""
+        if self.min_rounds > self.max_rounds:
+            raise ValueError(
+                f"min_rounds ({self.min_rounds}) cannot exceed "
+                f"max_rounds ({self.max_rounds})"
+            )
         return self
 
     def get_agent(self, agent_id: str) -> ConversationAgent | None:

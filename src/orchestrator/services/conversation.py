@@ -212,9 +212,18 @@ class ConversationExecutor:
 
                         # Check for consensus/decision after each turn
                         if self._check_consensus(record, agent):
-                            record.consensus_status = ConsensusStatus.AGREED
-                            self._extract_consensus_content(record)
-                            break
+                            # Enforce min_rounds before allowing consensus
+                            if record.current_round < self.workflow.min_rounds:
+                                # Consensus detected but too early
+                                self.event_handler.on_consensus_too_early(
+                                    record.current_round,
+                                    self.workflow.min_rounds,
+                                )
+                                # Continue - don't break, let other agents respond
+                            else:
+                                record.consensus_status = ConsensusStatus.AGREED
+                                self._extract_consensus_content(record)
+                                break
 
                     # After round, check if consensus reached
                     if record.consensus_status == ConsensusStatus.AGREED:
@@ -238,8 +247,12 @@ class ConversationExecutor:
                             exec_prompt = self._build_execution_prompt(record, first_agent)
                             record.add_message(MessageRole.SYSTEM, exec_prompt)
 
-                            # Execute the changes WITH write permission (execution mode skips conversation history)
-                            await self._agent_turn(record, first_agent, workflow_id, with_write_permission=True, execution_mode=True)
+                            # Execute WITH write permission, using execution prompt
+                            await self._agent_turn(
+                                record, first_agent, workflow_id,
+                                with_write_permission=True,
+                                execution_prompt=exec_prompt,
+                            )
                             self.store.save_conversation(workflow_id, record)
 
                             record.complete()
@@ -543,7 +556,7 @@ class ConversationExecutor:
         agent: ConversationAgent,
         workflow_id: str,
         with_write_permission: bool = False,
-        execution_mode: bool = False,
+        execution_prompt: str | None = None,
     ) -> None:
         """Execute a single agent's turn.
 
@@ -552,8 +565,8 @@ class ConversationExecutor:
             agent: The agent to execute
             workflow_id: The workflow ID
             with_write_permission: Whether to grant write permissions
-            execution_mode: If True, skip _build_prompt and use existing messages
-                          (used for execution phase after consensus approval)
+            execution_prompt: If provided, use this prompt directly instead of
+                            building from conversation history (for execution phase)
         """
         turn = TurnResult(agent_id=agent.id)
         turn.start()
@@ -561,11 +574,9 @@ class ConversationExecutor:
 
         self.event_handler.on_agent_turn_start(agent.id)
 
-        # Build prompt (skip if in execution mode - use existing messages)
-        if execution_mode:
-            # In execution mode, use the messages already in the record
-            # (which include the execution prompt we added)
-            prompt = ""
+        # Use execution prompt if provided, otherwise build from conversation history
+        if execution_prompt is not None:
+            prompt = execution_prompt
         else:
             prompt = self._build_prompt(record, agent)
 
@@ -785,6 +796,7 @@ class ConversationExecutor:
                     consensus_keyword=self.workflow.consensus_keyword,
                     history=history,
                     team_list=team_list,
+                    min_rounds=self.workflow.min_rounds,
                 )
             else:
                 return build_team_member_prompt(
@@ -793,6 +805,7 @@ class ConversationExecutor:
                     topic=self.workflow.topic,
                     lead_id=self.workflow.lead or "",
                     history=history,
+                    min_rounds=self.workflow.min_rounds,
                 )
         else:
             # Team mode: equal collaboration
@@ -802,6 +815,7 @@ class ConversationExecutor:
                 topic=self.workflow.topic,
                 consensus_keyword=self.workflow.consensus_keyword,
                 history=history,
+                min_rounds=self.workflow.min_rounds,
             )
 
     def _build_execution_prompt(
@@ -817,7 +831,11 @@ class ConversationExecutor:
 
         return f"""EXECUTION PHASE
 
-The team has reached consensus and the user has approved. You are now responsible for executing the agreed changes.
+## Current Permission State
+**PHASE: EXECUTION** (WRITE-ENABLED)
+- You CAN: read files, write files, edit code, execute commands
+- The team reached consensus and the user approved
+- You are now authorized to implement the agreed changes
 
 **Consensus:**
 {consensus}
