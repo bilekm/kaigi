@@ -247,11 +247,12 @@ class ConversationExecutor:
                             exec_prompt = self._build_execution_prompt(record, first_agent)
                             record.add_message(MessageRole.SYSTEM, exec_prompt)
 
-                            # Execute WITH write permission, using execution prompt
+                            # Execute WITH write permission, using native tools
                             await self._agent_turn(
                                 record, first_agent, workflow_id,
                                 with_write_permission=True,
                                 execution_prompt=exec_prompt,
+                                use_native_tools=True,
                             )
                             self.store.save_conversation(workflow_id, record)
 
@@ -557,6 +558,7 @@ class ConversationExecutor:
         workflow_id: str,
         with_write_permission: bool = False,
         execution_prompt: str | None = None,
+        use_native_tools: bool = False,
     ) -> None:
         """Execute a single agent's turn.
 
@@ -567,6 +569,8 @@ class ConversationExecutor:
             with_write_permission: Whether to grant write permissions
             execution_prompt: If provided, use this prompt directly instead of
                             building from conversation history (for execution phase)
+            use_native_tools: If True, skip the tool loop and let the agent use
+                            its native tools directly (for execution phase)
         """
         turn = TurnResult(agent_id=agent.id)
         turn.start()
@@ -580,9 +584,14 @@ class ConversationExecutor:
         else:
             prompt = self._build_prompt(record, agent)
 
-        # Execute agent command with tool support
+        # Execute agent command
         try:
-            output = await self._execute_tool_loop(agent, prompt, with_write_permission=with_write_permission)
+            if use_native_tools:
+                # Skip tool loop - let agent use its native tools directly
+                output = await self._execute_agent(agent, prompt, with_write_permission)
+            else:
+                # Use orchestrator's tool loop (for discussion phase)
+                output = await self._execute_tool_loop(agent, prompt, with_write_permission=with_write_permission)
 
             # Add response as message
             msg = record.add_message(MessageRole.AGENT, output, agent_id=agent.id)
@@ -833,70 +842,27 @@ class ConversationExecutor:
 
 ## Current Permission State
 **PHASE: EXECUTION** (WRITE-ENABLED)
-- You CAN: read files, write files, edit code, execute commands
+- You have FULL permission to read, write, and edit files
 - The team reached consensus and the user approved
 - You are now authorized to implement the agreed changes
 
-**Consensus:**
+## Consensus (what you agreed to do):
 {consensus}
 
-**Your task:**
-1. Analyze what needs to be done based on the consensus
-2. Use the available tools to make the changes
-3. Report back on what you did
+## Your Task
+Execute the agreed changes NOW. Use your native tools to:
+1. Read any files you need to understand
+2. Edit or write files to implement the changes
+3. Verify your changes worked
 
-**Available Tools:**
+## Important
+- DO NOT ask for permission - you already have it
+- DO NOT explain what you will do - just DO it
+- Use your Edit tool for surgical changes
+- Use your Write tool for new files
+- Report what you actually changed when done
 
-You have access to the following tools. To use a tool, output a JSON object on its own line:
-
-1. **read_file** - Read file contents
-   Usage: {{"type": "tool_call", "id": "t1", "tool": "read_file", "args": {{"path": "src/file.py"}}}}
-
-2. **write_file** - Write content to a file (creates parent dirs if needed)
-   Usage: {{"type": "tool_call", "id": "t2", "tool": "write_file", "args": {{"path": "src/file.py", "content": "..."}}}}
-
-3. **edit_file** - Surgical string replacement in a file
-   Usage: {{"type": "tool_call", "id": "t3", "tool": "edit_file", "args": {{"path": "src/file.py", "old_string": "foo", "new_string": "bar", "replace_all": false}}}}
-
-4. **grep** - Search for patterns in files
-   Usage: {{"type": "tool_call", "id": "t4", "tool": "grep", "args": {{"pattern": "TODO", "path": "src", "glob_pattern": "*.py", "ignore_case": true}}}}
-
-5. **glob** - Find files matching a pattern
-   Usage: {{"type": "tool_call", "id": "t5", "tool": "glob", "args": {{"pattern": "**/*.py"}}}}
-
-6. **exec_bash** - Execute a bash command in workspace directory
-   Usage: {{"type": "tool_call", "id": "t6", "tool": "exec_bash", "args": {{"command": "ls -la"}}}}
-
-7. **ask_user** - Ask the user a question for clarification
-   Usage: {{"type": "tool_call", "id": "t7", "tool": "ask_user", "args": {{"question": "Which approach do you prefer?", "options": [{{"label": "A", "description": "..."}}, {{"label": "B", "description": "..."}}]}}}}
-
-8. **spawn_agent** - Spawn a specialized subagent for a task
-   Usage: {{"type": "tool_call", "id": "t8", "tool": "spawn_agent", "args": {{"agent_type": "explore", "prompt": "Find all database schema files"}}}}
-   Agent types: explore (fast codebase search), plan (architecture design), review (code review), general (any task)
-
-**Tool Response Format:**
-
-After each tool call, you will receive a JSON response:
-- Success: {{"type": "tool_result", "id": "t1", "status": "ok", "content": "..."}}
-- Error: {{"type": "tool_result", "id": "t1", "status": "error", "content": "..."}}
-
-**Workflow:**
-1. Call a tool by outputting the JSON on its own line
-2. Wait for the tool result
-3. Continue with more tool calls or provide your final response
-4. When done, provide a summary starting with "DONE:"
-
-**Important:**
-- All file paths are relative to the workspace root
-- Use read_file before editing to understand the current state
-- Use grep and glob for codebase exploration instead of exec_bash
-- Use edit_file for surgical edits instead of write_file when making small changes
-- Use ask_user when you need clarification from the user
-- Use spawn_agent to delegate specialized tasks to subagents
-- Make changes incrementally and verify each step
-- If a tool fails, the error will explain why
-
-Begin execution now.
+Execute the consensus now.
 """
 
     # Context file limits to prevent DoS
