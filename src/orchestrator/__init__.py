@@ -4,6 +4,12 @@ from importlib.metadata import version
 
 __version__ = version("orchestrator")
 
+
+def get_version() -> str:
+    """Return the current version of the orchestrator package."""
+    return __version__
+
+
 # Export key services for convenience
 from orchestrator.services.event_handler import (
     ConversationEventHandler,
@@ -18,6 +24,7 @@ from orchestrator.services.container import (
 )
 
 __all__ = [
+    "get_version",
     "ConversationEventHandler",
     "NullEventHandler",
     "CliEventHandler",
