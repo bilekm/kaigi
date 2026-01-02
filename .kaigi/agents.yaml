@@ -37,7 +37,7 @@ agents:
     args: ["-p", "{{prompt}}", "--output-format", "text"]
     env:
       ANTHROPIC_BASE_URL: "https://api.z.ai/api/anthropic"
-      ANTHROPIC_AUTH_TOKEN: "***REMOVED***"
+      ANTHROPIC_AUTH_TOKEN: "${ZAI_API_KEY}"
     timeout: 600
     spawn_mode: true
     description: "GLM-4.7 via Z.AI"
