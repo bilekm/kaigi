@@ -76,7 +76,7 @@ An operator cancels a running workflow or retries a failed workflow from the poi
 - What happens when an agent times out?
   - The workflow treats timeout as failure: stops execution, reports timeout error with agent context, preserves partial results.
 
-- What happens when the orchestrator crashes mid-workflow?
+- What happens when kaigi crashes mid-workflow?
   - On restart, the system recovers workflow state from persistent storage and reports status; operator can retry from last checkpoint.
 
 ## Requirements *(mandatory)*
@@ -89,7 +89,7 @@ An operator cancels a running workflow or retries a failed workflow from the poi
 - **FR-004**: System MUST provide workflow status via CLI command, showing current state, completed agents, and outputs.
 - **FR-005**: System MUST support workflow cancellation, signaling the current agent to terminate.
 - **FR-006**: System MUST support retry-from-failure, resuming execution from the failed agent using preserved prior outputs.
-- **FR-007**: System MUST persist workflow state to allow recovery after orchestrator restart.
+- **FR-007**: System MUST persist workflow state to allow recovery after kaigi restart.
 - **FR-008**: System MUST validate workflow definitions before execution, rejecting circular dependencies or invalid agent references.
 - **FR-009**: System MUST provide all functionality via CLI with both JSON and human-readable output formats.
 - **FR-010**: System MUST emit structured error output (error code, message, source) for all failure conditions.
@@ -124,5 +124,5 @@ An operator cancels a running workflow or retries a failed workflow from the poi
 - Agents are external CLI programs that follow stdin/stdout/stderr conventions.
 - Agent commands are provided as executable paths or shell commands.
 - Workflow definitions are provided as configuration files (format to be determined in planning).
-- The orchestrator runs as a long-lived process or can be restarted with state recovery.
+- Kaigi runs as a long-lived process or can be restarted with state recovery.
 - Network partitions and agent host failures are out of scope for this initial feature.

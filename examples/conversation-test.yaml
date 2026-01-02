@@ -1,6 +1,6 @@
 # Test conversation workflow using echo commands
 # Use this to test conversation mode without real AI agents
-# Run with: orchestrator converse examples/conversation-test.yaml
+# Run with: kaigi converse examples/conversation-test.yaml
 
 name: echo-conversation
 version: "1.0"

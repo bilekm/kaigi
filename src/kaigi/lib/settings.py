@@ -87,9 +87,9 @@ def _expand_env_vars(value: str) -> str:
 
 def get_global_settings_path() -> Path:
     """Get path to global agent settings file."""
-    orchestrator_home = os.environ.get("ORCHESTRATOR_HOME")
-    if orchestrator_home:
-        return Path(orchestrator_home) / "agents.yaml"
+    kaigi_home = os.environ.get("KAIGI_HOME")
+    if kaigi_home:
+        return Path(kaigi_home) / "agents.yaml"
     return Path.home() / ".kaigi" / "agents.yaml"
 
 

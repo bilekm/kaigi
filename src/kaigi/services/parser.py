@@ -24,7 +24,7 @@ def parse_workflow_file(path: Path) -> Workflow | ConversationWorkflow:
         Parsed and validated Workflow or ConversationWorkflow object.
 
     Raises:
-        OrchestratorError: If file cannot be read or workflow is invalid.
+        KaigiError: If file cannot be read or workflow is invalid.
     """
     if not path.exists():
         raise workflow_invalid(f"Workflow file not found: {path}")
@@ -52,7 +52,7 @@ def parse_workflow_yaml(
         Parsed and validated Workflow or ConversationWorkflow object.
 
     Raises:
-        OrchestratorError: If YAML is invalid or workflow validation fails.
+        KaigiError: If YAML is invalid or workflow validation fails.
     """
     try:
         data = yaml.safe_load(content)
@@ -82,7 +82,7 @@ def parse_workflow_dict(
         Parsed and validated Workflow or ConversationWorkflow object.
 
     Raises:
-        OrchestratorError: If workflow validation fails.
+        KaigiError: If workflow validation fails.
     """
     mode = data.get("mode", "pipeline")
 

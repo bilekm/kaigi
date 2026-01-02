@@ -36,17 +36,17 @@ def _atomic_write(path: Path, content: str) -> None:
         raise
 
 
-def get_orchestrator_home() -> Path:
-    """Get the orchestrator home directory."""
-    home = os.environ.get("ORCHESTRATOR_HOME")
+def get_kaigi_home() -> Path:
+    """Get the kaigi home directory."""
+    home = os.environ.get("KAIGI_HOME")
     if home:
         return Path(home)
     return Path.home() / ".kaigi"
 
 
-def ensure_orchestrator_home() -> Path:
-    """Ensure orchestrator home directory exists."""
-    home = get_orchestrator_home()
+def ensure_kaigi_home() -> Path:
+    """Ensure kaigi home directory exists."""
+    home = get_kaigi_home()
     home.mkdir(parents=True, exist_ok=True)
     return home
 
@@ -55,10 +55,10 @@ class WorkflowStore:
     """File-based store for workflows and executions."""
 
     def __init__(self, base_path: Path | None = None):
-        self.base_path = base_path or ensure_orchestrator_home()
+        self.base_path = base_path or ensure_kaigi_home()
         self.workflows_path = self.base_path / "workflows"
         self.workflows_path.mkdir(parents=True, exist_ok=True)
-        self._global_lock_path = self.base_path / "orchestrator.lock"
+        self._global_lock_path = self.base_path / "kaigi.lock"
         self._logger = get_logger()
 
     # === Global Lock (Sequential Execution) ===

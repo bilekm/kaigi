@@ -2,11 +2,11 @@
 # Version: 1.0
 #
 # This file documents the expected structure of workflow YAML files.
-# Used for validation in `orchestrator validate` command.
+# Used for validation in `kaigi validate` command.
 
 $schema: "http://json-schema.org/draft-07/schema#"
-$id: "orchestrator-workflow-v1.0"
-title: "Orchestrator Workflow Definition"
+$id: "kaigi-workflow-v1.0"
+title: "Kaigi Workflow Definition"
 type: object
 
 required:

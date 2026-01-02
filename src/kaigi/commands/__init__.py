@@ -1,4 +1,4 @@
-"""CLI commands for the orchestrator.
+"""CLI commands for kaigi.
 
 This package contains the main CLI commands split into modules:
 - workflow.py: Pipeline workflow commands (run, status, list, etc.)

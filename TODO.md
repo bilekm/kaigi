@@ -1,4 +1,4 @@
-# Orchestrator TODO
+# Kaigi TODO
 
 ## High-Priority Fixes & Improvements
 
@@ -26,7 +26,7 @@
 **Tasks:**
 - [ ] Create backup/snapshot before execution phase begins
 - [ ] Implement transaction log of file changes during execution
-- [ ] Add `orchestrator rollback <conversation-id>` command
+- [ ] Add `kaigi rollback <conversation-id>` command
 - [ ] Test recovery from mid-execution failures
 
 ## Medium-Priority Enhancements
@@ -44,18 +44,18 @@
 **Problem:** Invalid agent configs cause runtime errors during conversation
 **Impact:** Wasted time debugging YAML syntax or missing fields
 **Tasks:**
-- [ ] Add `orchestrator agents validate` command
+- [ ] Add `kaigi agents validate` command
 - [ ] Check agent command accessibility before starting conversation
 - [ ] Validate persona/model compatibility (warn if model doesn't support persona)
-- [ ] Pre-flight check in `orchestrator converse` before starting agents
+- [ ] Pre-flight check in `kaigi converse` before starting agents
 
 ### 6. Workflow Templates & Examples
 **Problem:** Users need to write YAML workflows from scratch
 **Impact:** Steep learning curve, copy-paste errors
 **Tasks:**
-- [ ] Create `orchestrator init --template <name>` for common patterns
+- [ ] Create `kaigi init --template <name>` for common patterns
 - [ ] Add templates: code-review, feature-discussion, architecture-design
-- [ ] Generate workflow from natural language: `orchestrator generate "review PR #123"`
+- [ ] Generate workflow from natural language: `kaigi generate "review PR #123"`
 - [ ] Add workflow validation with helpful error messages
 
 ## Low-Priority / Future Ideas
@@ -64,7 +64,7 @@
 **Problem:** CLI-only interface limits visibility into multi-agent discussions
 **Impact:** Hard to follow conversations in real-time, especially for observers
 **Tasks:**
-- [ ] Create simple web server: `orchestrator serve --port 8080`
+- [ ] Create simple web server: `kaigi serve --port 8080`
 - [ ] Show live conversation view with agent avatars/colors
 - [ ] Display agent status (thinking, typing, waiting)
 - [ ] Allow web-based user input for interactive conversations
@@ -74,7 +74,7 @@
 **Impact:** Can't optimize agent selection or conversation strategies
 **Tasks:**
 - [ ] Track metrics: time-to-consensus, turns-per-conversation, agent response times
-- [ ] Generate report: `orchestrator stats <conversation-id>`
+- [ ] Generate report: `kaigi stats <conversation-id>`
 - [ ] Identify patterns: which agent combinations reach consensus fastest?
 - [ ] Add `--profile` flag to log detailed performance data
 
@@ -91,7 +91,7 @@
 **Problem:** Can't explore alternative discussion paths or replay with different agents
 **Impact:** One-shot conversations, no experimentation
 **Tasks:**
-- [ ] Add `orchestrator branch <conversation-id> --from-turn N`
+- [ ] Add `kaigi branch <conversation-id> --from-turn N`
 - [ ] Allow conversation replay with different agent configurations
 - [ ] Compare outcomes across branches (A/B testing for agent teams)
 - [ ] Merge insights from multiple branches back to main conversation

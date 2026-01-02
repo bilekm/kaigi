@@ -1,6 +1,6 @@
 # Three-agent conversation: Claude, Copilot, and GLM discuss a topic
 #
-# Run with: orchestrator converse examples/three-agents-discussion.yaml
+# Run with: kaigi converse examples/three-agents-discussion.yaml
 
 name: three-agents-discussion
 version: "1.0"

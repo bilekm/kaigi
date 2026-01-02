@@ -1,6 +1,6 @@
 # Text processing pipeline
 # Demonstrates stdin/stdout chaining between agents
-# Run with: orchestrator run examples/text-processing.yaml
+# Run with: kaigi run examples/text-processing.yaml
 
 name: text-processing
 version: "1.0"

@@ -1,24 +1,24 @@
 # Quickstart: Agent Workflow
 
-Get started with the Orchestrator in 5 minutes.
+Get started with Kaigi in 5 minutes.
 
 ## Installation
 
 ```bash
 # Clone and install
 git clone <repository-url>
-cd orchestrator
+cd kaigi
 pip install -e .
 ```
 
 ## Verify Installation
 
 ```bash
-orchestrator --version
-# orchestrator 0.1.0
+kaigi --version
+# kaigi 0.1.0
 
-orchestrator --help
-# Usage: orchestrator [OPTIONS] COMMAND [ARGS]...
+kaigi --help
+# Usage: kaigi [OPTIONS] COMMAND [ARGS]...
 # ...
 ```
 
@@ -34,7 +34,7 @@ version: "1.0"
 steps:
   - id: greet
     command: echo
-    args: ["Hello from Orchestrator!"]
+    args: ["Hello from Kaigi!"]
 
   - id: timestamp
     command: date
@@ -44,7 +44,7 @@ steps:
 ### 2. Validate the workflow
 
 ```bash
-orchestrator validate hello-world.yaml
+kaigi validate hello-world.yaml
 # Workflow 'hello-world' is valid.
 # 2 steps defined.
 ```
@@ -52,7 +52,7 @@ orchestrator validate hello-world.yaml
 ### 3. Run the workflow
 
 ```bash
-orchestrator run hello-world.yaml
+kaigi run hello-world.yaml
 # Starting workflow: hello-world
 # [1/2] greet... done (0.1s)
 # [2/2] timestamp... done (0.1s)
@@ -62,7 +62,7 @@ orchestrator run hello-world.yaml
 ### 4. Check the status
 
 ```bash
-orchestrator status
+kaigi status
 # Execution: abc123
 # Workflow: hello-world
 # Status: completed
@@ -72,10 +72,10 @@ orchestrator status
 ### 5. View step output
 
 ```bash
-orchestrator output abc123 greet
-# Hello from Orchestrator!
+kaigi output abc123 greet
+# Hello from Kaigi!
 
-orchestrator output abc123 timestamp
+kaigi output abc123 timestamp
 # 2025-12-27 10:30:00
 ```
 
@@ -105,14 +105,14 @@ steps:
 Run it:
 
 ```bash
-orchestrator run data-pipeline.yaml
+kaigi run data-pipeline.yaml
 # Starting workflow: data-pipeline
 # [1/3] fetch... done (1.2s)
 # [2/3] filter... done (0.1s)
 # [3/3] count... done (0.1s)
 # Workflow completed in 1.4s
 
-orchestrator output $(orchestrator status --json | jq -r .execution_id) count
+kaigi output $(kaigi status --json | jq -r .execution_id) count
 # 10
 ```
 
@@ -121,7 +121,7 @@ orchestrator output $(orchestrator status --json | jq -r .execution_id) count
 When an agent fails, the workflow stops and preserves state:
 
 ```bash
-orchestrator run broken-workflow.yaml
+kaigi run broken-workflow.yaml
 # Starting workflow: broken-workflow
 # [1/2] step1... done (0.5s)
 # [2/2] step2... FAILED (exit code 1)
@@ -131,7 +131,7 @@ orchestrator run broken-workflow.yaml
 Retry from the failure point:
 
 ```bash
-orchestrator retry
+kaigi retry
 # Retrying from step 'step2'...
 # [2/2] step2... done (0.3s)
 # Workflow completed in 0.3s
@@ -143,10 +143,10 @@ For long-running workflows:
 
 ```bash
 # In terminal 1
-orchestrator run long-workflow.yaml
+kaigi run long-workflow.yaml
 
 # In terminal 2
-orchestrator cancel
+kaigi cancel
 # Cancelling execution...
 # Workflow cancelled. Partial results preserved.
 ```
@@ -156,10 +156,10 @@ orchestrator cancel
 All commands support `--json` for scripting:
 
 ```bash
-orchestrator run hello-world.yaml --json | jq .status
+kaigi run hello-world.yaml --json | jq .status
 # "completed"
 
-orchestrator list --json | jq '.[0].workflow_name'
+kaigi list --json | jq '.[0].workflow_name'
 # "hello-world"
 ```
 

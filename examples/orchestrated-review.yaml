@@ -3,7 +3,7 @@
 # In orchestrated mode, one agent (the lead) analyzes the task,
 # assigns work to team members, and makes the final decision.
 #
-# Run with: orchestrator converse examples/orchestrated-review.yaml
+# Run with: kaigi converse examples/orchestrated-review.yaml
 
 name: orchestrated-code-review
 version: "1.0"
@@ -38,7 +38,7 @@ agents:
       and potential bottlenecks.
 
 topic: |
-  Review the orchestrator codebase for production readiness.
+  Review the kaigi codebase for production readiness.
 
   Lead architect: Analyze the code structure and delegate specific
   review tasks to your team members. Use "ASSIGN @agent-id: task"
@@ -51,6 +51,6 @@ max_rounds: 5
 turn_order: round_robin
 
 context_files:
-  - src/orchestrator/**/*.py
+  - src/kaigi/**/*.py
 
 consensus_keyword: "AGREED:"

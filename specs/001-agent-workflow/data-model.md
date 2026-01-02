@@ -83,7 +83,7 @@ Result of a single step execution.
 ## File Storage Layout
 
 ```
-~/.orchestrator/
+~/.kaigi/
 ├── workflows/
 │   └── {workflow_id}/
 │       ├── workflow.yaml          # Original workflow definition
@@ -95,7 +95,7 @@ Result of a single step execution.
 │               │   ├── {step_id}.err       # stderr
 │               │   └── {step_id}.out.tmp   # in-progress output
 │               └── run.lock        # Lock file (deleted on completion)
-└── orchestrator.lock              # Global lock for sequential execution
+└── kaigi.lock                     # Global lock for sequential execution
 ```
 
 ## YAML Workflow Schema

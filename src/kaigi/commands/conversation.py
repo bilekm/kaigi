@@ -8,7 +8,7 @@ from pathlib import Path
 
 import click
 
-from kaigi.lib.errors import OrchestratorError, print_error
+from kaigi.lib.errors import KaigiError, print_error
 from kaigi.commands.utils import _auto_start_agents
 
 
@@ -58,7 +58,7 @@ def converse_command() -> click.Command:
 
             if not isinstance(workflow, ConversationWorkflow):
                 raise workflow_invalid(
-                    "Workflow must have mode: conversation. Use 'orchestrator run' for pipeline workflows."
+                    "Workflow must have mode: conversation. Use 'kaigi run' for pipeline workflows."
                 )
 
             # Auto-start missing agents
@@ -84,7 +84,7 @@ def converse_command() -> click.Command:
             else:
                 sys.exit(1)
 
-        except OrchestratorError as e:
+        except KaigiError as e:
             print_error(e, use_json)
             if e.code.value == "WORKFLOW_INVALID":
                 sys.exit(2)
@@ -136,7 +136,7 @@ def say(message: str, execution_id: str | None, use_json: bool) -> None:
         else:
             click.echo(f"Message added to conversation {execution_id}")
 
-    except OrchestratorError as e:
+    except KaigiError as e:
         print_error(e, use_json)
         sys.exit(1)
 
@@ -228,7 +228,7 @@ def transcript(execution_id: str | None, round_num: int | None, use_json: bool) 
                 click.echo("\nCONSENSUS:")
                 click.echo(record.consensus_content)
 
-    except OrchestratorError as e:
+    except KaigiError as e:
         print_error(e, use_json)
         sys.exit(1)
 

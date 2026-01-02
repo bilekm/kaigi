@@ -1,11 +1,11 @@
-# CLI Contract: Orchestrator
+# CLI Contract: Kaigi
 
 **Version**: 1.0
 **Date**: 2025-12-27
 
 ## Overview
 
-The orchestrator CLI follows Unix conventions:
+The kaigi CLI follows Unix conventions:
 - Input: stdin, command-line arguments
 - Output: stdout (data), stderr (logs/errors)
 - Exit codes: 0 = success, non-zero = failure
@@ -14,7 +14,7 @@ All commands support `--json` flag for machine-readable output.
 
 ## Commands
 
-### `orchestrator run <workflow-file>`
+### `kaigi run <workflow-file>`
 
 Execute a workflow from a YAML definition file.
 
@@ -63,7 +63,7 @@ Workflow completed in 3.9s
 
 ---
 
-### `orchestrator status [execution-id]`
+### `kaigi status [execution-id]`
 
 Get status of a workflow execution.
 
@@ -115,7 +115,7 @@ Steps:
 
 ---
 
-### `orchestrator cancel [execution-id]`
+### `kaigi cancel [execution-id]`
 
 Cancel a running workflow execution.
 
@@ -146,7 +146,7 @@ Workflow cancelled. Partial results preserved.
 
 ---
 
-### `orchestrator retry [execution-id]`
+### `kaigi retry [execution-id]`
 
 Retry a failed or cancelled workflow from the point of failure.
 
@@ -179,7 +179,7 @@ Workflow completed in 1.6s
 
 ---
 
-### `orchestrator list`
+### `kaigi list`
 
 List recent workflow executions.
 
@@ -205,7 +205,7 @@ ghi789       my-pipeline    cancelled  2025-12-27 08:00:00  12.0s
 
 ---
 
-### `orchestrator validate <workflow-file>`
+### `kaigi validate <workflow-file>`
 
 Validate a workflow definition without executing.
 
@@ -240,7 +240,7 @@ Validation errors in my-pipeline.yaml:
 
 ---
 
-### `orchestrator output <execution-id> <step-id>`
+### `kaigi output <execution-id> <step-id>`
 
 Retrieve the output of a specific step.
 
@@ -267,7 +267,7 @@ Retrieve the output of a specific step.
 
 ---
 
-### `orchestrator cleanup`
+### `kaigi cleanup`
 
 Remove expired workflow data (older than 7 days).
 

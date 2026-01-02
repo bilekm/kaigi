@@ -8,7 +8,7 @@ from pathlib import Path
 
 import click
 
-from kaigi.lib.errors import OrchestratorError, print_error
+from kaigi.lib.errors import KaigiError, print_error
 
 
 def json_option(f):
@@ -57,7 +57,7 @@ def validate(workflow_file: Path, use_json: bool) -> None:
             else:
                 click.echo(f"Mode: pipeline")
                 click.echo(f"{len(workflow.steps)} steps defined.")
-    except OrchestratorError as e:
+    except KaigiError as e:
         print_error(e, use_json)
         sys.exit(2)
 
@@ -88,7 +88,7 @@ def run(workflow_file: Path, use_json: bool, quiet: bool) -> None:
         else:
             sys.exit(1)
 
-    except OrchestratorError as e:
+    except KaigiError as e:
         print_error(e, use_json)
         if e.code.value == "WORKFLOW_INVALID":
             sys.exit(2)
@@ -165,7 +165,7 @@ def status(execution_id: str | None, use_json: bool, workflow: str | None) -> No
                 duration = f", {step.duration_seconds:.1f}s" if step.duration_seconds else ""
                 click.echo(f"  {marker} {step.step_id} ({step.status.value}{duration})")
 
-    except OrchestratorError as e:
+    except KaigiError as e:
         print_error(e, use_json)
         sys.exit(1)
 
@@ -286,7 +286,7 @@ def cancel(execution_id: str | None, use_json: bool, force: bool) -> None:
             click.echo(json.dumps(cancel_result, indent=2))
         else:
             click.echo(f"Workflow cancelled. Partial results preserved.")
-    except OrchestratorError as e:
+    except KaigiError as e:
         print_error(e, use_json)
         sys.exit(2)
 
@@ -332,7 +332,7 @@ def retry(execution_id: str | None, use_json: bool, from_start: bool) -> None:
         if use_json:
             click.echo(json.dumps(retry_result, indent=2))
         sys.exit(0 if retry_result.get("status") == "completed" else 1)
-    except OrchestratorError as e:
+    except KaigiError as e:
         print_error(e, use_json)
         if e.code.value == "WORKFLOW_LOCKED":
             sys.exit(3)

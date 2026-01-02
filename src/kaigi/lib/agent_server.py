@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Callable
 
 # Socket directory
-SOCKET_DIR = Path("/tmp/orchestrator-agents")
+SOCKET_DIR = Path("/tmp/kaigi-agents")
 
 # Default timeout for agent responses (seconds)
 DEFAULT_RESPONSE_TIMEOUT = 120

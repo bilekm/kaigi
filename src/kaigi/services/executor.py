@@ -14,7 +14,7 @@ from uuid import uuid4
 import click
 
 from kaigi.lib.errors import (
-    OrchestratorError,
+    KaigiError,
     agent_failed,
     agent_timeout,
     workflow_locked,
@@ -57,7 +57,7 @@ def execute_workflow(
         Execution result dictionary.
 
     Raises:
-        OrchestratorError: On execution failure.
+        KaigiError: On execution failure.
     """
     return asyncio.run(
         _execute_workflow_async(workflow, yaml_content, use_json, quiet)

@@ -1,4 +1,4 @@
-"""Error types and formatting for the orchestrator."""
+"""Error types and formatting for kaigi."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any
 
 
 class ErrorCode(str, Enum):
-    """Standard error codes for orchestrator errors."""
+    """Standard error codes for kaigi errors."""
 
     AGENT_FAILED = "AGENT_FAILED"
     AGENT_TIMEOUT = "AGENT_TIMEOUT"
@@ -25,8 +25,8 @@ class ErrorCode(str, Enum):
 
 
 @dataclass
-class OrchestratorError(Exception):
-    """Base error class for orchestrator errors."""
+class KaigiError(Exception):
+    """Base error class for kaigi errors."""
 
     code: ErrorCode
     message: str
@@ -68,14 +68,14 @@ class OrchestratorError(Exception):
         return "\n".join(lines)
 
 
-def format_error(error: OrchestratorError, use_json: bool = False) -> str:
+def format_error(error: KaigiError, use_json: bool = False) -> str:
     """Format an error for output."""
     if use_json:
         return error.to_json()
     return error.format_human()
 
 
-def print_error(error: OrchestratorError, use_json: bool = False) -> None:
+def print_error(error: KaigiError, use_json: bool = False) -> None:
     """Print an error to stderr."""
     print(format_error(error, use_json), file=sys.stderr)
 
@@ -87,7 +87,7 @@ def agent_failed(
     stderr: str = "",
     workflow_name: str = "",
     execution_id: str = "",
-) -> OrchestratorError:
+) -> KaigiError:
     """Create an AGENT_FAILED error."""
     source_parts = []
     if workflow_name:
@@ -96,7 +96,7 @@ def agent_failed(
         source_parts.append(f"execution:{execution_id}")
     source_parts.append(f"step:{agent_id}")
 
-    return OrchestratorError(
+    return KaigiError(
         code=ErrorCode.AGENT_FAILED,
         message=f"Agent '{agent_id}' exited with code {exit_code}",
         source="/".join(source_parts),
@@ -104,62 +104,62 @@ def agent_failed(
     )
 
 
-def agent_timeout(agent_id: str, timeout_seconds: int) -> OrchestratorError:
+def agent_timeout(agent_id: str, timeout_seconds: int) -> KaigiError:
     """Create an AGENT_TIMEOUT error."""
-    return OrchestratorError(
+    return KaigiError(
         code=ErrorCode.AGENT_TIMEOUT,
         message=f"Agent '{agent_id}' exceeded timeout of {timeout_seconds} seconds",
         details={"timeout_seconds": timeout_seconds},
     )
 
 
-def workflow_invalid(message: str, details: dict[str, Any] | None = None) -> OrchestratorError:
+def workflow_invalid(message: str, details: dict[str, Any] | None = None) -> KaigiError:
     """Create a WORKFLOW_INVALID error."""
-    return OrchestratorError(
+    return KaigiError(
         code=ErrorCode.WORKFLOW_INVALID,
         message=message,
         details=details or {},
     )
 
 
-def workflow_locked() -> OrchestratorError:
+def workflow_locked() -> KaigiError:
     """Create a WORKFLOW_LOCKED error."""
-    return OrchestratorError(
+    return KaigiError(
         code=ErrorCode.WORKFLOW_LOCKED,
         message="Another workflow is already running. Only one workflow can run at a time.",
     )
 
 
-def execution_not_found(execution_id: str) -> OrchestratorError:
+def execution_not_found(execution_id: str) -> KaigiError:
     """Create an EXECUTION_NOT_FOUND error."""
-    return OrchestratorError(
+    return KaigiError(
         code=ErrorCode.EXECUTION_NOT_FOUND,
         message=f"Execution '{execution_id}' not found",
         details={"execution_id": execution_id},
     )
 
 
-def step_not_found(step_id: str, execution_id: str) -> OrchestratorError:
+def step_not_found(step_id: str, execution_id: str) -> KaigiError:
     """Create a STEP_NOT_FOUND error."""
-    return OrchestratorError(
+    return KaigiError(
         code=ErrorCode.STEP_NOT_FOUND,
         message=f"Step '{step_id}' not found in execution '{execution_id}'",
         details={"step_id": step_id, "execution_id": execution_id},
     )
 
 
-def not_retryable(execution_id: str, status: str) -> OrchestratorError:
+def not_retryable(execution_id: str, status: str) -> KaigiError:
     """Create a NOT_RETRYABLE error."""
-    return OrchestratorError(
+    return KaigiError(
         code=ErrorCode.NOT_RETRYABLE,
         message=f"Execution '{execution_id}' is not in a retryable state (current: {status})",
         details={"execution_id": execution_id, "status": status},
     )
 
 
-def io_error(message: str, path: str = "") -> OrchestratorError:
+def io_error(message: str, path: str = "") -> KaigiError:
     """Create an IO_ERROR error."""
-    return OrchestratorError(
+    return KaigiError(
         code=ErrorCode.IO_ERROR,
         message=message,
         details={"path": path} if path else {},
@@ -168,18 +168,18 @@ def io_error(message: str, path: str = "") -> OrchestratorError:
 
 def conversation_error(
     message: str, details: dict[str, Any] | None = None
-) -> OrchestratorError:
+) -> KaigiError:
     """Create a CONVERSATION_ERROR error."""
-    return OrchestratorError(
+    return KaigiError(
         code=ErrorCode.CONVERSATION_ERROR,
         message=message,
         details=details or {},
     )
 
 
-def no_consensus(execution_id: str, rounds: int) -> OrchestratorError:
+def no_consensus(execution_id: str, rounds: int) -> KaigiError:
     """Create a NO_CONSENSUS error."""
-    return OrchestratorError(
+    return KaigiError(
         code=ErrorCode.NO_CONSENSUS,
         message=f"Conversation '{execution_id}' ended after {rounds} rounds without consensus",
         details={"execution_id": execution_id, "rounds": rounds},

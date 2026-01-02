@@ -17,7 +17,7 @@ from uuid import uuid4
 import click
 
 from kaigi.lib.errors import (
-    OrchestratorError,
+    KaigiError,
     agent_failed,
     agent_timeout,
     conversation_error,
@@ -623,7 +623,7 @@ class ConversationExecutor:
                 # Skip tool loop - let agent use its native tools directly
                 output = await self._execute_agent(agent, prompt, with_write_permission)
             else:
-                # Use orchestrator's tool loop (for discussion phase)
+                # Use kaigi's tool loop (for discussion phase)
                 output = await self._execute_tool_loop(agent, prompt, with_write_permission=with_write_permission)
 
             # Add response as message
@@ -648,7 +648,7 @@ class ConversationExecutor:
 
             raise agent_timeout(agent.id, agent.timeout)
 
-        except OrchestratorError:
+        except KaigiError:
             raise
 
         except Exception as e:

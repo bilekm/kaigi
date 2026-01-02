@@ -9,7 +9,7 @@ from pathlib import Path
 import click
 
 from kaigi import __version__
-from kaigi.lib.errors import OrchestratorError, print_error
+from kaigi.lib.errors import KaigiError, print_error
 
 
 # Common options
@@ -86,7 +86,7 @@ def _run_conversation(config_path: Path) -> None:
         else:
             click.echo(f"Conversation {result['status']}")
 
-    except OrchestratorError as e:
+    except KaigiError as e:
         print_error(e, False)
         sys.exit(1)
 
@@ -176,7 +176,7 @@ def cli(ctx: click.Context) -> None:
 @cli.command()
 @click.option("--force", is_flag=True, help="Overwrite existing config")
 def init(force: bool) -> None:
-    """Initialize a new orchestrator project."""
+    """Initialize a new kaigi project."""
     project_dir = Path.cwd() / ".kaigi"
 
     if project_dir.exists() and not force:

@@ -1,11 +1,11 @@
-# Conversation workflow: AI agents analyze the orchestrator codebase
+# Conversation workflow: AI agents analyze the kaigi codebase
 #
-# Run with: orchestrator converse examples/analyze-codebase.yaml
+# Run with: kaigi converse examples/analyze-codebase.yaml
 
 name: codebase-analysis
 version: "1.0"
 mode: conversation
-description: AI team analyzes the orchestrator codebase
+description: AI team analyzes the kaigi codebase
 
 agents:
   - id: architect
@@ -22,7 +22,7 @@ agents:
     persona: "You are a pragmatic developer. Focus on implementation details, test coverage, and developer experience."
 
 topic: |
-  Analyze the orchestrator codebase - a CLI tool for coordinating AI agent workflows.
+  Analyze the kaigi codebase - a CLI tool for coordinating AI agent workflows.
 
   Review the code and discuss:
   1. Overall architecture and design patterns used
@@ -37,6 +37,6 @@ max_rounds: 5
 turn_order: round_robin
 
 context_files:
-  - src/orchestrator/**/*.py
+  - src/kaigi/**/*.py
 
 consensus_keyword: "AGREED:"

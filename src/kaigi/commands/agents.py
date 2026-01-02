@@ -12,7 +12,7 @@ from pathlib import Path
 
 import click
 
-from kaigi.lib.errors import OrchestratorError
+from kaigi.lib.errors import KaigiError
 
 
 def json_option(f):
@@ -249,14 +249,14 @@ def _start_agent_in_terminal(agent_id: str, command: str, args: list[str], env: 
         return False
 
     # Build the command to run in the terminal
-    # We need to run the orchestrator agents start command in foreground
+    # We need to run the kaigi agents start command in foreground
     # Use full path since terminal may not have the same PATH
-    orchestrator_path = shutil.which("orchestrator")
-    if orchestrator_path:
-        agent_cmd = [orchestrator_path, "agents", "start", agent_id]
+    kaigi_path = shutil.which("kaigi")
+    if kaigi_path:
+        agent_cmd = [kaigi_path, "agents", "start", agent_id]
     else:
         # Fallback: use python -m
-        agent_cmd = [sys.executable, "-m", "orchestrator", "agents", "start", agent_id]
+        agent_cmd = [sys.executable, "-m", "kaigi", "agents", "start", agent_id]
 
     # Build full command
     full_cmd = terminal_cmd + agent_cmd
@@ -288,16 +288,16 @@ def agents_start(name: str, agent_id: str | None, background: bool, terminal: bo
     Examples:
 
         # Start Claude agent in foreground (current terminal)
-        orchestrator agents start claude
+        kaigi agents start claude
 
         # Start in background (hidden)
-        orchestrator agents start claude --background
+        kaigi agents start claude --background
 
         # Start in new visible terminal window
-        orchestrator agents start claude --terminal
+        kaigi agents start claude --terminal
 
         # Start with custom ID
-        orchestrator agents start claude --id claude-1
+        kaigi agents start claude --id claude-1
     """
     from kaigi.lib.settings import get_agent_config
     from kaigi.lib.agent_client import is_agent_running
@@ -305,14 +305,14 @@ def agents_start(name: str, agent_id: str | None, background: bool, terminal: bo
     config = get_agent_config(name)
     if not config:
         click.echo(f"Agent '{name}' not found in settings.")
-        click.echo("Run 'orchestrator agents list' to see available agents.")
+        click.echo("Run 'kaigi agents list' to see available agents.")
         sys.exit(1)
 
     agent_id = agent_id or name
 
     if is_agent_running(agent_id):
         click.echo(f"Agent '{agent_id}' is already running.")
-        click.echo("Use 'orchestrator agents stop {agent_id}' to stop it first.")
+        click.echo("Use 'kaigi agents stop {agent_id}' to stop it first.")
         sys.exit(1)
 
     # Build command - for persistent agent (interactive mode):
@@ -428,13 +428,13 @@ def agents_start_all(workflow_file: Path | None, background: bool, terminal: boo
     Examples:
 
         # Start all agents in background (default)
-        orchestrator agents start-all
+        kaigi agents start-all
 
         # Start all agents in visible terminals
-        orchestrator agents start-all --terminal
+        kaigi agents start-all --terminal
 
         # Start agents from specific workflow
-        orchestrator agents start-all examples/my-workflow.yaml --terminal
+        kaigi agents start-all examples/my-workflow.yaml --terminal
     """
     from kaigi.services.parser import parse_workflow_file
     from kaigi.models.workflow import ConversationWorkflow
@@ -447,7 +447,7 @@ def agents_start_all(workflow_file: Path | None, background: bool, terminal: boo
         workflow_file = Path.cwd() / ".kaigi" / "workflow.yaml"
         if not workflow_file.exists():
             click.echo("No workflow file specified and .kaigi/workflow.yaml not found.")
-            click.echo("Usage: orchestrator agents start-all <workflow-file>")
+            click.echo("Usage: kaigi agents start-all <workflow-file>")
             sys.exit(1)
 
     try:
@@ -580,10 +580,10 @@ def agents_stop(agent_id: str | None, stop_all: bool) -> None:
     Examples:
 
         # Stop specific agent
-        orchestrator agents stop claude
+        kaigi agents stop claude
 
         # Stop all running agents
-        orchestrator agents stop --all
+        kaigi agents stop --all
     """
     from kaigi.lib.agent_client import stop_agent, stop_all_agents, list_running_agents
 
@@ -632,16 +632,16 @@ def agents_restart(name: str, agent_id: str | None, background: bool, terminal: 
     Examples:
 
         # Restart Claude agent in foreground
-        orchestrator agents restart claude
+        kaigi agents restart claude
 
         # Restart in background
-        orchestrator agents restart claude --background
+        kaigi agents restart claude --background
 
         # Restart in new terminal window
-        orchestrator agents restart claude --terminal
+        kaigi agents restart claude --terminal
 
         # Restart with custom ID
-        orchestrator agents restart claude --id claude-1
+        kaigi agents restart claude --id claude-1
     """
     from kaigi.lib.agent_client import is_agent_running, stop_agent
     from kaigi.lib.settings import get_agent_config
@@ -649,7 +649,7 @@ def agents_restart(name: str, agent_id: str | None, background: bool, terminal: 
     config = get_agent_config(name)
     if not config:
         click.echo(f"Agent '{name}' not found in settings.")
-        click.echo("Run 'orchestrator agents list' to see available agents.")
+        click.echo("Run 'kaigi agents list' to see available agents.")
         sys.exit(1)
 
     target_id = agent_id or name
@@ -759,7 +759,7 @@ def agents_restart(name: str, agent_id: str | None, background: bool, terminal: 
 
             if is_agent_running(target_id):
                 click.echo(f"Agent '{target_id}' restarted successfully (PID: {process.pid}).")
-                click.echo("Use 'orchestrator agents running' to verify.")
+                click.echo("Use 'kaigi agents running' to verify.")
             else:
                 click.echo(f"Agent '{target_id}' may not have started properly.")
 
@@ -779,7 +779,7 @@ def agents_running(use_json: bool) -> None:
     if not running:
         click.echo("No agents running.")
         click.echo()
-        click.echo("Start an agent with: orchestrator agents start <name>")
+        click.echo("Start an agent with: kaigi agents start <name>")
         return
 
     click.echo(f"{'AGENT ID':<20} {'PID':<10} {'SOCKET'}")
@@ -823,7 +823,7 @@ def agents_test(agent_id: str, message: str) -> None:
 
     Examples:
 
-        orchestrator agents test claude "Hello, how are you?"
+        kaigi agents test claude "Hello, how are you?"
     """
     import asyncio
     from kaigi.lib.agent_client import send_prompt, AgentNotRunning

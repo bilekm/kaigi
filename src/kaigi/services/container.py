@@ -1,4 +1,4 @@
-"""Simple dependency injection container for orchestrator services.
+"""Simple dependency injection container for kaigi services.
 
 This module provides a lightweight dependency container that makes it easy to:
 1. Wire up dependencies without circular imports

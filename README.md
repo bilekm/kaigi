@@ -1,6 +1,6 @@
-# Orchestrator
+# Kaigi (会議)
 
-CLI-based workflow orchestrator for AI agent coordination. Run multi-agent conversations where AI agents discuss topics, collaborate on tasks, and reach consensus.
+CLI-based multi-agent collaboration platform. Run multi-agent conversations where AI agents discuss topics, collaborate on tasks, and reach consensus.
 
 ## Quick Start
 
@@ -9,15 +9,15 @@ CLI-based workflow orchestrator for AI agent coordination. Run multi-agent conve
 pip install -e .
 
 # 2. Configure agents
-orchestrator agents init
-# Edit ~/.orchestrator/agents.yaml with your agents
+kaigi agents init
+# Edit ~/.kaigi/agents.yaml with your agents
 
 # 3. Initialize a project
 cd your-project
-orchestrator init
+kaigi init
 
 # 4. Start conversation
-orchestrator
+kaigi
 ```
 
 ## Features
@@ -32,53 +32,53 @@ orchestrator
 ### Basic Conversation
 
 ```bash
-# Just run orchestrator in a project directory
-orchestrator
+# Just run kaigi in a project directory
+kaigi
 
 # Or specify a workflow file
-orchestrator converse workflow.yaml
+kaigi converse workflow.yaml
 ```
 
 ### Agent Management
 
 ```bash
 # List configured agents
-orchestrator agents list
+kaigi agents list
 
 # Start agents in background (auto-started by default)
-orchestrator agents start claude --background
-orchestrator agents start copilot --background
+kaigi agents start claude --background
+kaigi agents start copilot --background
 
 # Start all agents from workflow in visible terminals
-orchestrator agents start-all --terminal
+kaigi agents start-all --terminal
 
 # Check running agents
-orchestrator agents running
+kaigi agents running
 
 # Stop agents
-orchestrator agents stop --all
+kaigi agents stop --all
 ```
 
 ### Persistent Agents (Faster Responses)
 
-By default, `orchestrator converse` auto-starts agents in the background. For visible agent terminals:
+By default, `kaigi converse` auto-starts agents in the background. For visible agent terminals:
 
 ```bash
 # Option 1: Start all agents in visible terminal windows
-orchestrator agents start-all --terminal
+kaigi agents start-all --terminal
 
 # Then run conversation (agents already running)
-orchestrator converse workflow.yaml --no-auto-start
+kaigi converse workflow.yaml --no-auto-start
 
 # Option 2: Manually start each agent in separate terminals
 # Terminal 1:
-orchestrator agents start claude
+kaigi agents start claude
 
 # Terminal 2:
-orchestrator agents start copilot
+kaigi agents start copilot
 
 # Terminal 3:
-orchestrator converse workflow.yaml --no-auto-start
+kaigi converse workflow.yaml --no-auto-start
 ```
 
 ## Workflow Configuration
@@ -144,8 +144,8 @@ consensus_keyword: "AGREED:"
 
 ## Agent Configuration
 
-Global settings: `~/.orchestrator/agents.yaml`
-Project settings: `.orchestrator/agents.yaml` (overrides global)
+Global settings: `~/.kaigi/agents.yaml`
+Project settings: `.kaigi/agents.yaml` (overrides global)
 
 ```yaml
 agents:
@@ -182,14 +182,14 @@ During a conversation, you can type commands:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    orchestrator converse                     │
+│                       kaigi converse                         │
 │                                                              │
 │   Auto-detects persistent agents via Unix sockets            │
 │   Falls back to spawning new processes if not running        │
 │                                                              │
 │         ┌──────────────┬──────────────┬──────────────┐      │
 │         ▼              ▼              ▼              ▼      │
-│    /tmp/orchestrator-agents/                                 │
+│    /tmp/kaigi-agents/                                        │
 │    ├── claude.sock     ├── copilot.sock   ├── glm.sock      │
 │    └── claude.pid      └── copilot.pid    └── glm.pid       │
 └─────────────────────────────────────────────────────────────┘
@@ -198,26 +198,26 @@ During a conversation, you can type commands:
 ## Commands Reference
 
 ```
-orchestrator                    Run project workflow or init wizard
-orchestrator init               Create new project configuration
-orchestrator converse <file>    Run conversation workflow
-orchestrator validate <file>    Validate workflow file
+kaigi                    Run project workflow or init wizard
+kaigi init               Create new project configuration
+kaigi converse <file>    Run conversation workflow
+kaigi validate <file>    Validate workflow file
 
-orchestrator agents list        List configured agents
-orchestrator agents init        Create agents.yaml template
-orchestrator agents show <name> Show agent details
-orchestrator agents start <n>   Start persistent agent
-orchestrator agents start-all   Start all agents from workflow
-orchestrator agents stop [id]   Stop running agent(s)
-orchestrator agents running     List running agents
-orchestrator agents ping <id>   Test agent connectivity
-orchestrator agents test <id>   Send test message to agent
+kaigi agents list        List configured agents
+kaigi agents init        Create agents.yaml template
+kaigi agents show <name> Show agent details
+kaigi agents start <n>   Start persistent agent
+kaigi agents start-all   Start all agents from workflow
+kaigi agents stop [id]   Stop running agent(s)
+kaigi agents running     List running agents
+kaigi agents ping <id>   Test agent connectivity
+kaigi agents test <id>   Send test message to agent
 
-orchestrator say <message>      Inject message into conversation
-orchestrator transcript [id]    Show conversation transcript
-orchestrator status [id]        Show execution status
-orchestrator list               List recent executions
-orchestrator cleanup            Remove old execution data
+kaigi say <message>      Inject message into conversation
+kaigi transcript [id]    Show conversation transcript
+kaigi status [id]        Show execution status
+kaigi list               List recent executions
+kaigi cleanup            Remove old execution data
 ```
 
 ## License

@@ -1,6 +1,6 @@
 # Data pipeline example
 # Fetches data, filters it, and counts results
-# Run with: orchestrator run examples/data-pipeline.yaml
+# Run with: kaigi run examples/data-pipeline.yaml
 
 name: data-pipeline
 version: "1.0"

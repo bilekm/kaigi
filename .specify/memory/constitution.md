@@ -23,13 +23,13 @@ Templates requiring updates:
 Follow-up TODOs: None
 -->
 
-# Orchestrator Constitution
+# Kaigi Constitution
 
 ## Core Principles
 
 ### I. CLI-Centric Interface
 
-All Orchestrator components MUST expose functionality via command-line interface.
+All Kaigi components MUST expose functionality via command-line interface.
 
 - **Text protocol**: stdin/args as input, stdout as output, stderr for errors
 - **Machine-readable output**: MUST support JSON output format (`--json` or equivalent)
@@ -79,7 +79,7 @@ Errors MUST be explicit, visible, and actionable. Silent failures are prohibited
 
 ## Governance
 
-This constitution supersedes all other development practices within the Orchestrator project.
+This constitution supersedes all other development practices within the Kaigi project.
 
 **Amendment process**:
 1. Propose amendment with rationale

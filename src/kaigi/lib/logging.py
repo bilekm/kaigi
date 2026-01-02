@@ -1,4 +1,4 @@
-"""Structured JSON logging for the orchestrator."""
+"""Structured JSON logging for kaigi."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 # Simple hello world workflow
-# Run with: orchestrator run examples/hello-world.yaml
+# Run with: kaigi run examples/hello-world.yaml
 
 name: hello-world
 version: "1.0"
@@ -7,7 +7,7 @@ description: A simple workflow that demonstrates basic agent chaining
 steps:
   - id: greet
     command: echo
-    args: ["Hello from Orchestrator!"]
+    args: ["Hello from Kaigi!"]
 
   - id: timestamp
     command: date

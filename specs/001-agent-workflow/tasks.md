@@ -15,7 +15,7 @@
 
 ## Path Conventions
 
-- **Single project**: `src/orchestrator/`, `tests/` at repository root
+- **Single project**: `src/kaigi/`, `tests/` at repository root
 - Structure per plan.md
 
 ---
@@ -24,9 +24,9 @@
 
 **Purpose**: Project initialization and basic structure
 
-- [x] T001 Create project directory structure per plan.md in src/orchestrator/
+- [x] T001 Create project directory structure per plan.md in src/kaigi/
 - [x] T002 Initialize Python project with pyproject.toml (click, pyyaml, pydantic dependencies)
-- [x] T003 [P] Create src/orchestrator/__init__.py with version info
+- [x] T003 [P] Create src/kaigi/__init__.py with version info
 - [x] T004 [P] Configure ruff for linting in pyproject.toml
 - [x] T005 [P] Create tests/conftest.py with shared pytest fixtures
 
@@ -38,13 +38,13 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [x] T006 [P] Implement error types and formatting in src/orchestrator/lib/errors.py
-- [x] T007 [P] Implement structured JSON logging in src/orchestrator/lib/logging.py
-- [x] T008 Create Workflow and AgentStep Pydantic models in src/orchestrator/models/workflow.py
-- [x] T009 Create ExecutionRecord and StepResult Pydantic models in src/orchestrator/models/execution.py
-- [x] T010 Implement YAML workflow parser with validation in src/orchestrator/services/parser.py
-- [x] T011 Implement file-based state store in src/orchestrator/services/store.py
-- [x] T012 Create Click CLI skeleton with --json and --version flags in src/orchestrator/cli.py
+- [x] T006 [P] Implement error types and formatting in src/kaigi/lib/errors.py
+- [x] T007 [P] Implement structured JSON logging in src/kaigi/lib/logging.py
+- [x] T008 Create Workflow and AgentStep Pydantic models in src/kaigi/models/workflow.py
+- [x] T009 Create ExecutionRecord and StepResult Pydantic models in src/kaigi/models/execution.py
+- [x] T010 Implement YAML workflow parser with validation in src/kaigi/services/parser.py
+- [x] T011 Implement file-based state store in src/kaigi/services/store.py
+- [x] T012 Create Click CLI skeleton with --json and --version flags in src/kaigi/cli.py
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -58,15 +58,15 @@
 
 ### Implementation for User Story 1
 
-- [x] T013 [US1] Implement workflow executor with subprocess streaming in src/orchestrator/services/executor.py
-- [x] T014 [US1] Add agent output streaming to disk (temp file → rename) in src/orchestrator/services/executor.py
-- [x] T015 [US1] Add timeout handling with SIGTERM/SIGKILL escalation in src/orchestrator/services/executor.py
-- [x] T016 [US1] Implement global lock for sequential execution in src/orchestrator/services/store.py
-- [x] T017 [US1] Implement `orchestrator validate` command in src/orchestrator/cli.py
-- [x] T018 [US1] Implement `orchestrator run` command in src/orchestrator/cli.py
-- [x] T019 [US1] Add progress output (human-readable) for run command in src/orchestrator/cli.py
-- [x] T020 [US1] Add JSON output support for run command in src/orchestrator/cli.py
-- [x] T021 [US1] Add structured error output for agent failures in src/orchestrator/cli.py
+- [x] T013 [US1] Implement workflow executor with subprocess streaming in src/kaigi/services/executor.py
+- [x] T014 [US1] Add agent output streaming to disk (temp file → rename) in src/kaigi/services/executor.py
+- [x] T015 [US1] Add timeout handling with SIGTERM/SIGKILL escalation in src/kaigi/services/executor.py
+- [x] T016 [US1] Implement global lock for sequential execution in src/kaigi/services/store.py
+- [x] T017 [US1] Implement `kaigi validate` command in src/kaigi/cli.py
+- [x] T018 [US1] Implement `kaigi run` command in src/kaigi/cli.py
+- [x] T019 [US1] Add progress output (human-readable) for run command in src/kaigi/cli.py
+- [x] T020 [US1] Add JSON output support for run command in src/kaigi/cli.py
+- [x] T021 [US1] Add structured error output for agent failures in src/kaigi/cli.py
 
 **Checkpoint**: User Story 1 complete - can define and run workflows, see progress, handle failures
 
@@ -80,12 +80,12 @@
 
 ### Implementation for User Story 2
 
-- [x] T022 [US2] Implement execution lookup by ID and latest in src/orchestrator/services/store.py
-- [x] T023 [US2] Implement `orchestrator status` command in src/orchestrator/cli.py
-- [x] T024 [US2] Add human-readable status output with step progress in src/orchestrator/cli.py
-- [x] T025 [US2] Add JSON output support for status command in src/orchestrator/cli.py
-- [x] T026 [US2] Implement `orchestrator list` command with --limit and --status filters in src/orchestrator/cli.py
-- [x] T027 [US2] Implement `orchestrator output` command for step stdout/stderr in src/orchestrator/cli.py
+- [x] T022 [US2] Implement execution lookup by ID and latest in src/kaigi/services/store.py
+- [x] T023 [US2] Implement `kaigi status` command in src/kaigi/cli.py
+- [x] T024 [US2] Add human-readable status output with step progress in src/kaigi/cli.py
+- [x] T025 [US2] Add JSON output support for status command in src/kaigi/cli.py
+- [x] T026 [US2] Implement `kaigi list` command with --limit and --status filters in src/kaigi/cli.py
+- [x] T027 [US2] Implement `kaigi output` command for step stdout/stderr in src/kaigi/cli.py
 
 **Checkpoint**: User Story 2 complete - can monitor and inspect workflow executions
 
@@ -99,12 +99,12 @@
 
 ### Implementation for User Story 3
 
-- [x] T028 [US3] Implement process termination with SIGTERM/SIGKILL in src/orchestrator/services/executor.py
-- [x] T029 [US3] Implement `orchestrator cancel` command in src/orchestrator/cli.py
-- [x] T030 [US3] Add --force flag for immediate SIGKILL in cancel command in src/orchestrator/cli.py
-- [x] T031 [US3] Implement retry-from-failure logic using preserved step outputs in src/orchestrator/services/executor.py
-- [x] T032 [US3] Implement `orchestrator retry` command in src/orchestrator/cli.py
-- [x] T033 [US3] Add --from-start flag for full restart in retry command in src/orchestrator/cli.py
+- [x] T028 [US3] Implement process termination with SIGTERM/SIGKILL in src/kaigi/services/executor.py
+- [x] T029 [US3] Implement `kaigi cancel` command in src/kaigi/cli.py
+- [x] T030 [US3] Add --force flag for immediate SIGKILL in cancel command in src/kaigi/cli.py
+- [x] T031 [US3] Implement retry-from-failure logic using preserved step outputs in src/kaigi/services/executor.py
+- [x] T032 [US3] Implement `kaigi retry` command in src/kaigi/cli.py
+- [x] T033 [US3] Add --from-start flag for full restart in retry command in src/kaigi/cli.py
 
 **Checkpoint**: User Story 3 complete - full workflow lifecycle control available
 
@@ -114,9 +114,9 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [x] T034 Implement 7-day cleanup service in src/orchestrator/services/cleanup.py
-- [x] T035 Implement `orchestrator cleanup` command with --dry-run in src/orchestrator/cli.py
-- [x] T036 Add crash recovery: detect stale locks on startup in src/orchestrator/services/store.py
+- [x] T034 Implement 7-day cleanup service in src/kaigi/services/cleanup.py
+- [x] T035 Implement `kaigi cleanup` command with --dry-run in src/kaigi/cli.py
+- [x] T036 Add crash recovery: detect stale locks on startup in src/kaigi/services/store.py
 - [x] T037 [P] Create example workflows in examples/ directory
 - [x] T038 [P] Validate implementation against quickstart.md scenarios
 - [x] T039 Add CLI entry point to pyproject.toml [project.scripts]
@@ -158,8 +158,8 @@
 
 ```bash
 # Launch lib utilities in parallel:
-Task: "Implement error types in src/orchestrator/lib/errors.py"
-Task: "Implement structured JSON logging in src/orchestrator/lib/logging.py"
+Task: "Implement error types in src/kaigi/lib/errors.py"
+Task: "Implement structured JSON logging in src/kaigi/lib/logging.py"
 ```
 
 ---
@@ -177,9 +177,9 @@ Task: "Implement structured JSON logging in src/orchestrator/lib/logging.py"
 ### Incremental Delivery
 
 1. Setup + Foundational → Foundation ready
-2. Add User Story 1 → Test with `orchestrator run` (MVP!)
-3. Add User Story 2 → Test with `orchestrator status` and `orchestrator list`
-4. Add User Story 3 → Test with `orchestrator cancel` and `orchestrator retry`
+2. Add User Story 1 → Test with `kaigi run` (MVP!)
+3. Add User Story 2 → Test with `kaigi status` and `kaigi list`
+4. Add User Story 3 → Test with `kaigi cancel` and `kaigi retry`
 5. Add Polish → Cleanup, examples, final validation
 
 ---

@@ -50,7 +50,7 @@
 
 ### Storage: File-based JSON
 
-**Decision**: JSON files in `~/.orchestrator/` directory.
+**Decision**: JSON files in `~/.kaigi/` directory.
 
 **Rationale**:
 - No external dependencies (no database to install)

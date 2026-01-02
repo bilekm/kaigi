@@ -5,13 +5,13 @@
 
 ## Summary
 
-Build a CLI-based workflow orchestrator that coordinates sequential agent execution. Agents are external CLI programs; the orchestrator passes stdout from each agent as stdin to the next. Features include workflow definition via YAML, execution monitoring, cancellation, retry-from-failure, and state persistence with 7-day retention.
+Build a CLI-based workflow orchestrator that coordinates sequential agent execution. Agents are external CLI programs; kaigi passes stdout from each agent as stdin to the next. Features include workflow definition via YAML, execution monitoring, cancellation, retry-from-failure, and state persistence with 7-day retention.
 
 ## Technical Context
 
 **Language/Version**: Python 3.11+
 **Primary Dependencies**: PyYAML (workflow parsing), Click (CLI framework), Pydantic (data validation)
-**Storage**: File-based JSON (workflow state, outputs stored in `~/.orchestrator/`)
+**Storage**: File-based JSON (workflow state, outputs stored in `~/.kaigi/`)
 **Testing**: pytest with pytest-asyncio for subprocess handling
 **Target Platform**: Linux/macOS (POSIX systems with standard process control)
 **Project Type**: Single CLI application
@@ -37,7 +37,7 @@ Build a CLI-based workflow orchestrator that coordinates sequential agent execut
 
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
-| Single responsibility | PASS | Orchestrator only coordinates; agents do work |
+| Single responsibility | PASS | Kaigi only coordinates; agents do work |
 | Pipeable output | PASS | FR-002: stdout → stdin between agents |
 | Stateless operations | PASS | State in explicit file store, not hidden |
 | Contract stability | PASS | YAML schema will be versioned |
@@ -73,7 +73,7 @@ specs/001-agent-workflow/
 
 ```text
 src/
-├── orchestrator/
+├── kaigi/
 │   ├── __init__.py
 │   ├── cli.py           # Click CLI entry points
 │   ├── models/

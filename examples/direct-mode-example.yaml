@@ -17,5 +17,5 @@ agents:
       - write:*
 
 topic: |
-  Add a simple hello world function to src/orchestrator/hello.py
+  Add a simple hello world function to src/kaigi/hello.py
   that returns "Hello, World!".

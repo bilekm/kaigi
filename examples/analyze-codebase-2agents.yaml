@@ -1,12 +1,12 @@
-# Conversation workflow: AI agents analyze the orchestrator codebase
+# Conversation workflow: AI agents analyze the kaigi codebase
 # Uses Claude and Copilot (GLM requires different integration)
 #
-# Run with: orchestrator converse examples/analyze-codebase-2agents.yaml
+# Run with: kaigi converse examples/analyze-codebase-2agents.yaml
 
 name: codebase-analysis-2
 version: "1.0"
 mode: conversation
-description: AI team analyzes the orchestrator codebase
+description: AI team analyzes the kaigi codebase
 
 agents:
   - id: architect
@@ -18,7 +18,7 @@ agents:
     persona: "You are a pragmatic developer and code reviewer. Look for potential bugs, edge cases, error handling issues. Focus on implementation details and suggest improvements."
 
 topic: |
-  Analyze the orchestrator codebase - a CLI tool for coordinating AI agent workflows.
+  Analyze the kaigi codebase - a CLI tool for coordinating AI agent workflows.
 
   Review the code and discuss:
   1. Overall architecture and design patterns used
@@ -33,6 +33,6 @@ max_rounds: 3
 turn_order: round_robin
 
 context_files:
-  - src/orchestrator/**/*.py
+  - src/kaigi/**/*.py
 
 consensus_keyword: "AGREED:"

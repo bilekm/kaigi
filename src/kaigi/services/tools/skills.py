@@ -129,7 +129,7 @@ class SkillRegistry:
             try:
                 # Load module
                 spec = importlib.util.spec_from_file_location(
-                    f"orchestrator.skills.{skill_file.stem}",
+                    f"kaigi.skills.{skill_file.stem}",
                     skill_file,
                 )
 

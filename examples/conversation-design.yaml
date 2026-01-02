@@ -2,11 +2,11 @@
 # AI agents discuss and design a solution together
 #
 # Prerequisites:
-#   1. Run: orchestrator agents init
-#   2. Configure agents in ~/.orchestrator/agents.yaml
+#   1. Run: kaigi agents init
+#   2. Configure agents in ~/.kaigi/agents.yaml
 #   3. Set API keys (e.g., export ZAI_API_KEY=...)
 #
-# Run with: orchestrator converse examples/conversation-design.yaml
+# Run with: kaigi converse examples/conversation-design.yaml
 
 name: api-design-discussion
 version: "1.0"
@@ -14,7 +14,7 @@ mode: conversation
 description: AI team discusses API caching strategy
 
 agents:
-  # Reference agents from ~/.orchestrator/agents.yaml
+  # Reference agents from ~/.kaigi/agents.yaml
   - id: architect
     agent: claude                    # <-- Reference by name
     persona: "You are a senior software architect. Focus on system design, scalability, and maintainability. Consider trade-offs carefully."

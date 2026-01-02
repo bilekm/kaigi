@@ -1,12 +1,12 @@
-# Conversation workflow: AI agents analyze the orchestrator codebase
+# Conversation workflow: AI agents analyze the kaigi codebase
 # Three-agent team: Claude (architect), Copilot (reviewer), GLM (analyst)
 #
-# Run with: orchestrator
+# Run with: kaigi
 
 name: codebase-analysis-3
 version: "1.0"
 mode: conversation
-description: AI team analyzes the orchestrator codebase
+description: AI team analyzes the kaigi codebase
 
 agents:
   - id: architect
@@ -21,12 +21,12 @@ agents:
     agent: glm
     persona: "You are a creative code analyst. You often see patterns and possibilities that others miss. Look for alternative approaches, optimizations, and innovative solutions. Think outside the box."
 
-# topic left empty - orchestrator will prompt at runtime
+# topic left empty - kaigi will prompt at runtime
 
 max_rounds: 10
 turn_order: round_robin
 
 # context_files:
-#   - src/orchestrator/**/*.py
+#   - src/kaigi/**/*.py
 
 consensus_keyword: "AGREED:"
