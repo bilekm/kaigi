@@ -1,0 +1,38 @@
+# Three-agent conversation: Claude, Copilot, and GLM discuss a topic
+#
+# Run with: orchestrator converse examples/three-agents-discussion.yaml
+
+name: three-agents-discussion
+version: "1.0"
+mode: conversation
+description: Three AI agents (Claude, Copilot, GLM) discuss a topic together
+
+agents:
+  - id: claude
+    agent: claude
+    persona: "You are Claude (Anthropic). You are analytical, detailed, and thoughtful. You excel at understanding context and providing comprehensive insights."
+
+  - id: copilot
+    agent: copilot
+    persona: "You are Copilot (GitHub). You are practical and solutions-oriented. You focus on actionable advice and real-world implementation."
+
+  - id: glm
+    agent: glm
+    persona: "You are GLM (Z.AI). You bring a different perspective and often see things others miss. You are creative and think outside the box."
+
+topic: |
+  Discuss: "What makes a great CLI tool for AI agent coordination?"
+
+  Consider aspects like:
+  - User experience and interface design
+  - Performance and reliability
+  - Flexibility and extensibility
+  - Developer experience
+
+  Each agent should share their unique perspective. Build on each other's ideas.
+  When you feel you've reached a comprehensive understanding, start your response with "AGREED:".
+
+max_rounds: 5
+turn_order: round_robin
+
+consensus_keyword: "AGREED:"

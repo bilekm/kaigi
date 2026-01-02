@@ -5,20 +5,20 @@ import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timezone
 
-from orchestrator.models.execution import (
+from kaigi.models.execution import (
     ConversationRecord,
     ConsensusStatus,
     ExecutionStatus,
     MessageRole,
     TurnResult,
 )
-from orchestrator.models.workflow import (
+from kaigi.models.workflow import (
     ConversationAgent,
     ConversationWorkflow,
 )
-from orchestrator.services.conversation import ConversationExecutor
-from orchestrator.services.event_handler import NullEventHandler
-from orchestrator.services.store import WorkflowStore
+from kaigi.services.conversation import ConversationExecutor
+from kaigi.services.event_handler import NullEventHandler
+from kaigi.services.store import WorkflowStore
 
 
 @pytest.fixture
@@ -268,7 +268,7 @@ class TestAgentResolution:
 
         agent = sample_workflow.agents[0]  # agent: claude reference
 
-        with patch("orchestrator.services.conversation.get_agent_config") as mock_config:
+        with patch("kaigi.services.conversation.get_agent_config") as mock_config:
             mock_config.return_value = Mock(
                 command="claude",
                 args=["-p", "{{prompt}}"],
@@ -333,7 +333,7 @@ class TestAgentResolution:
             model="sonnet-4",
         )
 
-        with patch("orchestrator.services.conversation.get_agent_config") as mock_config:
+        with patch("kaigi.services.conversation.get_agent_config") as mock_config:
             mock_config.return_value = Mock(
                 command="claude",
                 args=["-p", "{{prompt}}"],
@@ -535,7 +535,7 @@ class TestEventHandlerIntegration:
         with patch.object(executor, "_execute_agent", new_callable=AsyncMock) as mock_execute:
             mock_execute.return_value = "Simple response. AGREED: Done"
 
-            with patch("orchestrator.services.conversation.signal_handler_context"):
+            with patch("kaigi.services.conversation.signal_handler_context"):
                 result = executor.execute()
 
         # Verify event handler was called
@@ -555,7 +555,7 @@ class TestEventHandlerIntegration:
         with patch.object(executor, "_execute_agent", new_callable=AsyncMock) as mock_execute:
             mock_execute.return_value = "Response with AGREED: Done"
 
-            with patch("orchestrator.services.conversation.signal_handler_context"):
+            with patch("kaigi.services.conversation.signal_handler_context"):
                 result = executor.execute()
 
         assert result is not None

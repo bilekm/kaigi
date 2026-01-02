@@ -1,0 +1,144 @@
+"""YAML workflow parser with validation."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import yaml
+from pydantic import ValidationError
+
+from kaigi.lib.errors import workflow_invalid
+from kaigi.models.workflow import ConversationWorkflow, Workflow
+
+
+def parse_workflow_file(path: Path) -> Workflow | ConversationWorkflow:
+    """Parse a workflow from a YAML file.
+
+    Detects mode and returns appropriate workflow type.
+
+    Args:
+        path: Path to the workflow YAML file.
+
+    Returns:
+        Parsed and validated Workflow or ConversationWorkflow object.
+
+    Raises:
+        OrchestratorError: If file cannot be read or workflow is invalid.
+    """
+    if not path.exists():
+        raise workflow_invalid(f"Workflow file not found: {path}")
+
+    try:
+        content = path.read_text()
+    except OSError as e:
+        raise workflow_invalid(f"Cannot read workflow file: {e}")
+
+    return parse_workflow_yaml(content, source=str(path))
+
+
+def parse_workflow_yaml(
+    content: str, source: str = "<string>"
+) -> Workflow | ConversationWorkflow:
+    """Parse a workflow from YAML content.
+
+    Detects mode and returns appropriate workflow type.
+
+    Args:
+        content: YAML content string.
+        source: Source identifier for error messages.
+
+    Returns:
+        Parsed and validated Workflow or ConversationWorkflow object.
+
+    Raises:
+        OrchestratorError: If YAML is invalid or workflow validation fails.
+    """
+    try:
+        data = yaml.safe_load(content)
+    except yaml.YAMLError as e:
+        raise workflow_invalid(f"Invalid YAML in {source}: {e}")
+
+    if not isinstance(data, dict):
+        raise workflow_invalid(
+            f"Workflow must be a YAML mapping, got: {type(data).__name__}"
+        )
+
+    return parse_workflow_dict(data, source=source)
+
+
+def parse_workflow_dict(
+    data: dict[str, Any], source: str = "<dict>"
+) -> Workflow | ConversationWorkflow:
+    """Parse a workflow from a dictionary.
+
+    Detects mode and returns appropriate workflow type.
+
+    Args:
+        data: Workflow data dictionary.
+        source: Source identifier for error messages.
+
+    Returns:
+        Parsed and validated Workflow or ConversationWorkflow object.
+
+    Raises:
+        OrchestratorError: If workflow validation fails.
+    """
+    mode = data.get("mode", "pipeline")
+
+    if mode == "conversation":
+        return _parse_conversation_workflow(data, source)
+    else:
+        return _parse_pipeline_workflow(data, source)
+
+
+def _parse_pipeline_workflow(data: dict[str, Any], source: str) -> Workflow:
+    """Parse a pipeline-mode workflow."""
+    try:
+        return Workflow.model_validate(data)
+    except ValidationError as e:
+        errors = []
+        for error in e.errors():
+            loc = ".".join(str(x) for x in error["loc"])
+            msg = error["msg"]
+            errors.append(f"  - {loc}: {msg}")
+        error_list = "\n".join(errors)
+        raise workflow_invalid(
+            f"Validation errors in {source}:\n{error_list}",
+            details={"validation_errors": e.errors()},
+        )
+
+
+def _parse_conversation_workflow(
+    data: dict[str, Any], source: str
+) -> ConversationWorkflow:
+    """Parse a conversation-mode workflow."""
+    try:
+        return ConversationWorkflow.model_validate(data)
+    except ValidationError as e:
+        errors = []
+        for error in e.errors():
+            loc = ".".join(str(x) for x in error["loc"])
+            msg = error["msg"]
+            errors.append(f"  - {loc}: {msg}")
+        error_list = "\n".join(errors)
+        raise workflow_invalid(
+            f"Conversation workflow validation errors in {source}:\n{error_list}",
+            details={"validation_errors": e.errors()},
+        )
+
+
+def validate_workflow_file(path: Path) -> tuple[bool, list[str]]:
+    """Validate a workflow file without fully parsing it.
+
+    Args:
+        path: Path to the workflow YAML file.
+
+    Returns:
+        Tuple of (is_valid, list of error messages).
+    """
+    try:
+        workflow = parse_workflow_file(path)
+        return True, []
+    except Exception as e:
+        return False, [str(e)]

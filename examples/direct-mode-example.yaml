@@ -1,0 +1,21 @@
+name: direct-mode-example
+version: "1.0"
+mode: conversation
+collaboration: direct
+designated_agent: claude
+
+description: |
+  Example of direct collaboration mode where a single agent executes
+  immediately without discussion phase.
+
+agents:
+  - id: claude
+    agent: claude
+    persona: You are Claude, an AI assistant focused on clean code implementation.
+    permissions:
+      - read:*
+      - write:*
+
+topic: |
+  Add a simple hello world function to src/orchestrator/hello.py
+  that returns "Hello, World!".

@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for orchestrator tests."""
+"""Shared pytest fixtures for kaigi tests."""
 
 import os
 import tempfile
@@ -15,9 +15,9 @@ def temp_dir():
 
 
 @pytest.fixture
-def orchestrator_home(temp_dir, monkeypatch):
-    """Set up isolated orchestrator home directory for tests."""
-    home = temp_dir / ".orchestrator"
+def kaigi_home(temp_dir, monkeypatch):
+    """Set up isolated kaigi home directory for tests."""
+    home = temp_dir / ".kaigi"
     home.mkdir()
     monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
     return home

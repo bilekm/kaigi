@@ -2,14 +2,14 @@
 
 import pytest
 
-from orchestrator import (
+from kaigi import (
     ServiceContainer,
     get_default_container,
     reset_default_container,
     ContainerContext,
     NullEventHandler,
 )
-from orchestrator.services.store import WorkflowStore
+from kaigi.services.store import WorkflowStore
 from unittest.mock import Mock
 
 
