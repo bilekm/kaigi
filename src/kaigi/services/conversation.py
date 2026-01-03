@@ -305,9 +305,11 @@ class ConversationExecutor:
                             )
                             self.store.save_conversation(workflow_id, record)
 
-                            record.complete()
+                            # Reset consensus state for next round, keep conversation running
+                            record.consensus_status = ConsensusStatus.PENDING
+                            record.consensus_content = None
                             self.store.save_conversation(workflow_id, record)
-                            break
+                            # Don't break - let loop continue to prompt user or exit cleanly
                         else:
                             # User provided feedback or invalid approval - continue discussion
                             if user_response:
