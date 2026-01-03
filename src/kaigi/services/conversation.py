@@ -342,6 +342,23 @@ class ConversationExecutor:
         finally:
             self.store.release_global_lock()
 
+    def _strip_thinking_blocks(self, text: str) -> str:
+        """Strip thinking blocks from agent output.
+
+        Some agents (like Claude) output <thinking>...</thinking> blocks.
+        These should be removed from stored messages since:
+        1. They're not part of the actual response content
+        2. Including them in conversation history causes API errors when
+           the history is sent to agents in subsequent prompts
+
+        Args:
+            text: Raw agent output that may contain thinking blocks
+
+        Returns:
+            Text with thinking blocks removed
+        """
+        return re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL).strip()
+
     def _parse_tool_calls(self, text: str) -> list[ToolCall]:
         """Parse tool calls from agent output.
 
@@ -651,8 +668,9 @@ class ConversationExecutor:
                 # Use kaigi's tool loop (for discussion phase)
                 output = await self._execute_tool_loop(agent, prompt, with_write_permission=with_write_permission)
 
-            # Add response as message
-            msg = record.add_message(MessageRole.AGENT, output, agent_id=agent.id)
+            # Add response as message (strip thinking blocks for cleaner history)
+            clean_output = self._strip_thinking_blocks(output)
+            msg = record.add_message(MessageRole.AGENT, clean_output, agent_id=agent.id)
             turn.complete(msg.id)
 
             duration = turn.duration_seconds or 0
