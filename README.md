@@ -1,4 +1,4 @@
-# Kaigi (会議)
+# Kaigi
 
 CLI-based multi-agent collaboration platform. Run multi-agent conversations where AI agents discuss topics, collaborate on tasks, and reach consensus.
 
