@@ -1,0 +1,75 @@
+name: helper-agent-design
+version: "1.0"
+mode: conversation
+
+# Orchestrated mode - lead coordinates, team provides input
+collaboration: orchestrated
+lead: architect
+
+agents:
+  - id: architect
+    agent: claude
+    persona: "System architect focused on clean integration, configuration design, and maintaining backwards compatibility."
+
+  - id: analyst
+    agent: glm
+    persona: "Usage optimization specialist focused on quota efficiency, cost reduction, and practical resource allocation."
+
+  - id: implementer
+    agent: copilot
+    persona: "Implementation engineer focused on simple, maintainable code with clear interfaces and error handling."
+
+topic: |
+  Design TWO related features for kaigi:
+
+  ## FEATURE 1: Helper Agent for Quota Optimization
+
+  The Context:
+  - GLM has ~5x more usage quota than Claude/Copilot
+  - We want to use GLM for lightweight tasks to conserve other agents
+  - This should be configurable in settings (not hardcoded)
+
+  Design Requirements:
+  1. What tasks should a helper agent handle?
+     - Examples:
+       - **Prompt preprocessing**: Read user input, clean/clarify/format before agents see it
+       - **Clarification requests**: Analyze prompt for ambiguities, ask user BEFORE discussion starts
+       - **Response colorization**: Parse agent responses and add ANSI colors
+       - **Result summarization**: Summarize outcomes for user
+       - **Simple decisions**: Lightweight yes/no choices
+     - What tasks are too complex for a helper?
+
+  2. Configuration format
+     - Where to specify helper agent? (global agents.yaml, workflow YAML, both?)
+     - How to specify which tasks helper handles?
+     - Fallback behavior if helper unavailable?
+
+  3. Integration points
+     - How does executor decide: helper vs main agent?
+     - Does helper participate in conversations or work in background?
+     - Should helper be invisible to user or visible in logs?
+     - **Prompt flow**: User → Helper (clarify/clean) → Main Agents → Helper (colorize/summarize) → User
+
+  ## FEATURE 2: Colorized Agent Responses
+
+  The Problem:
+  - Agent responses are plain text, hard to scan
+  - Important points get lost in long responses
+  - Code snippets blend with prose
+
+  Proposed Approaches (choose one or combine):
+  1. **Helper agent colorization**: Helper analyzes responses and adds ANSI colors
+  2. **Agent suggestions**: Guide agents to use markdown/code blocks for emphasis
+  3. **Hybrid**: Agents use basic formatting, helper enhances it
+
+  Design Requirements:
+  - What color scheme? (code=syntax highlight, warnings=yellow, errors=red, etc.)
+  - Performance: Can helper add colors without blocking?
+  - Fallback: What if colorization fails?
+  - User control: --no-color flag for terminals that don't support it?
+
+  Please reach a consensus on a design proposal for BOTH features.
+
+max_rounds: 8
+min_rounds: 3
+consensus_keyword: "AGREED:"
