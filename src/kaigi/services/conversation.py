@@ -31,6 +31,11 @@ from kaigi.lib.prompts import (
     build_team_prompt,
     build_team_system_message,
 )
+from kaigi.services.summarizer import (
+    apply_summary,
+    create_summary,
+    should_summarize,
+)
 from kaigi.lib.settings import get_agent_config
 from kaigi.lib.signals import signal_handler_context
 from kaigi.models.execution import (
@@ -235,6 +240,16 @@ class ConversationExecutor:
                             self._extract_consensus_content(record)
                             # Don't break - let all agents in this round respond
 
+                    # After round complete, check if summarization is needed
+                    # (Triggered by high token count OR consensus reached)
+                    if should_summarize(record):
+                        self.logger.info(
+                            "Conversation exceeds token threshold, creating summary",
+                            round=record.current_round,
+                        )
+                        record = apply_summary(record)
+                        self.store.save_conversation(workflow_id, record)
+
                     # After round, check if consensus reached and enforce min_rounds
                     if record.consensus_status == ConsensusStatus.AGREED:
                         if record.current_round < self.workflow.min_rounds:
@@ -245,6 +260,14 @@ class ConversationExecutor:
                             )
                             record.consensus_status = ConsensusStatus.PENDING
                             record.consensus_content = None  # Clear stale content
+                        else:
+                            # Consensus reached - create summary before user approval
+                            self.logger.info(
+                                "Consensus reached, creating conversation summary",
+                                round=record.current_round,
+                            )
+                            record = apply_summary(record)
+                            self.store.save_conversation(workflow_id, record)
                         # If min_rounds satisfied, proceed to user approval
 
                     # Prompt for user approval if consensus reached (and min_rounds satisfied)

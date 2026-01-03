@@ -1,0 +1,40 @@
+name: memory-strategy-design
+version: "1.0"
+mode: conversation
+
+# Team mode - all perspectives equal for design discussion
+collaboration: team
+
+agents:
+  - id: claude
+    agent: claude
+    persona: "Technical architect focused on code patterns, implementation efficiency, and system reliability. You care about what developers actually need from conversation history."
+
+  - id: glm
+    agent: glm
+    persona: "Semantic coherence specialist focused on preserving user intent, decision rationale, and context continuity. You care about maintaining the 'why' behind decisions."
+
+  - id: gemini
+    agent: copilot
+    persona: "Context window optimization expert focused on token efficiency, information density, and retrieval performance. You care about maximizing information per token."
+
+topic: |
+  Design a conversation summarization strategy for kaigi multi-agent conversations.
+
+  The Problem:
+  - Long conversations exceed agent context windows
+  - Need to preserve decision-making context while reducing tokens
+  - Store full conversation to disk, send summarized version to agents
+
+  Design Requirements:
+  1. What information MUST be preserved (decisions, consensus, rationale)?
+  2. What can be safely discarded (greetings, repetition)?
+  3. How to structure summaries for efficient retrieval?
+  4. When to trigger summarization (turn intervals, token thresholds)?
+  5. How to handle code snippets vs natural language?
+
+  Please reach a consensus on a design proposal.
+
+max_rounds: 8
+min_rounds: 3
+consensus_keyword: "AGREED:"

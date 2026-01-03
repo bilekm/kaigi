@@ -11,16 +11,25 @@
 - [ ] Add detailed logging for socket read/write operations
 - [ ] Create integration test suite for agent server lifecycle
 
-### 2. Conversation Memory Management
+### 2. Conversation Memory Management (COMPLETED)
 **Problem:** Long conversations may exceed agent context windows
 **Impact:** Agent responses degrade or fail after extended discussions
-**Tasks:**
-- [ ] Implement conversation summarization at configurable turn intervals
-- [ ] Add truncation strategy for old messages (keep first N + last M turns)
-- [ ] Store full conversation to disk, send summarized version to agents
-- [ ] Add `--max-context-turns` flag to conversation config
+**Status:** Implemented Hybrid-Rationale Strategy (Summary + Rolling Buffer)
+- ✅ Implemented conversation summarization with configurable turn intervals
+- ✅ Added truncation strategy (keep first N + last M turns)
+- ✅ Store full conversation to disk, send summarized version to agents
+- ✅ Added `--max-context-turns` flag to conversation config
 
-### 3. Error Recovery in Execution Phase
+### 3. Agent Quota & Usage Balancing
+**Problem:** Agents have different usage limits (hourly vs monthly) and costs
+**Impact:** High-usage agents (GLM) get blocked, while available agents (Copilot) sit idle
+**Tasks:**
+- [ ] Implement Global Usage Store (`~/.kaigi/usage_stats.json`)
+- [ ] Add quota config to `agents.yaml` (period, limit, weight, cooldown)
+- [ ] Implement Weighted Fair Queueing for agent selection
+- [ ] Add `kaigi agents usage` command to view stats
+
+### 4. Error Recovery in Execution Phase
 **Problem:** If agent fails during execution, changes may be partially applied
 **Impact:** Inconsistent codebase state, difficult rollback
 **Tasks:**
@@ -31,7 +40,7 @@
 
 ## Medium-Priority Enhancements
 
-### 4. Consensus Detection Improvements
+### 5. Consensus Detection Improvements
 **Problem:** Current keyword-based consensus ("AGREED:") is brittle
 **Impact:** May miss implicit agreement or trigger on false positives
 **Tasks:**
@@ -40,7 +49,7 @@
 - [ ] Allow configurable consensus threshold (e.g., 2/3 agents instead of all)
 - [ ] Add `--consensus-mode` flag: strict (all), majority, lead-only
 
-### 5. Agent Configuration Validation
+### 6. Agent Configuration Validation
 **Problem:** Invalid agent configs cause runtime errors during conversation
 **Impact:** Wasted time debugging YAML syntax or missing fields
 **Tasks:**
@@ -49,7 +58,7 @@
 - [ ] Validate persona/model compatibility (warn if model doesn't support persona)
 - [ ] Pre-flight check in `kaigi converse` before starting agents
 
-### 6. Workflow Templates & Examples
+### 7. Workflow Templates & Examples
 **Problem:** Users need to write YAML workflows from scratch
 **Impact:** Steep learning curve, copy-paste errors
 **Tasks:**
@@ -60,7 +69,7 @@
 
 ## Low-Priority / Future Ideas
 
-### 7. Web UI for Conversation Monitoring
+### 8. Web UI for Conversation Monitoring
 **Problem:** CLI-only interface limits visibility into multi-agent discussions
 **Impact:** Hard to follow conversations in real-time, especially for observers
 **Tasks:**
@@ -69,7 +78,7 @@
 - [ ] Display agent status (thinking, typing, waiting)
 - [ ] Allow web-based user input for interactive conversations
 
-### 8. Agent Performance Analytics
+### 9. Agent Performance Analytics
 **Problem:** No metrics on agent response quality or consensus efficiency
 **Impact:** Can't optimize agent selection or conversation strategies
 **Tasks:**
@@ -78,7 +87,7 @@
 - [ ] Identify patterns: which agent combinations reach consensus fastest?
 - [ ] Add `--profile` flag to log detailed performance data
 
-### 9. Integration with External Tools
+### 10. Integration with External Tools
 **Problem:** Agents can't access external context (GitHub issues, docs, databases)
 **Impact:** Limited to codebase knowledge, can't fetch runtime data
 **Tasks:**
@@ -87,7 +96,7 @@
 - [ ] Allow agents to request tool execution: `TOOL: github.get_issue(123)`
 - [ ] Sandbox tool execution with user approval for sensitive operations
 
-### 10. Conversation Branching & Replay
+### 11. Conversation Branching & Replay
 **Problem:** Can't explore alternative discussion paths or replay with different agents
 **Impact:** One-shot conversations, no experimentation
 **Tasks:**
@@ -126,11 +135,11 @@
 
 ## Notes on Prioritization
 
-**Priority 1** items (1-3) directly address stability and reliability. These should be completed before any public release.
+**Priority 1** items (1-4) directly address stability and reliability. These should be completed before any public release.
 
-**Priority 2** items (4-6) improve user experience and reduce friction. Consider these for v1.1 after core stability is proven.
+**Priority 2** items (5-7) improve user experience and reduce friction. Consider these for v1.1 after core stability is proven.
 
-**Priority 3** items (7-10) are innovative but not essential. Good candidates for community contributions or experimental branches.
+**Priority 3** items (8-11) are innovative but not essential. Good candidates for community contributions or experimental branches.
 
 **Test coverage** should happen in parallel with Priority 1 fixes - write tests that reproduce bugs before fixing them.
 

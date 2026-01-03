@@ -249,6 +249,10 @@ class ConversationRecord(BaseModel):
     # File context snapshot
     context_files_content: dict[str, str] = Field(default_factory=dict)
 
+    # Conversation summarization
+    summary: str | None = None  # Compressed conversation history
+    summary_cutoff_round: int | None = None  # Round where summary was created
+
     @property
     def duration_seconds(self) -> float | None:
         """Calculate duration in seconds."""
@@ -297,15 +301,38 @@ class ConversationRecord(BaseModel):
         return msg
 
     def get_conversation_history(self) -> str:
-        """Format full conversation history for prompt."""
+        """Format conversation history for prompt.
+
+        Includes summary if available, followed by messages since the summary.
+        """
         lines = []
-        for msg in self.messages:
+
+        # Add summary if available
+        if self.summary:
+            lines.append("[PREVIOUS DISCUSSION SUMMARY]")
+            lines.append(self.summary)
+            lines.append("")
+            lines.append("[END SUMMARY]")
+            lines.append("")
+
+        # Add messages since summary cutoff (or all messages if no summary)
+        start_index = 0
+        if self.summary_cutoff_round is not None:
+            # Find first message at or after summary cutoff round
+            for i, msg in enumerate(self.messages):
+                if msg.round_number >= self.summary_cutoff_round:
+                    start_index = i
+                    break
+
+        # Format messages
+        for msg in self.messages[start_index:]:
             if msg.role == MessageRole.SYSTEM:
                 lines.append(f"[SYSTEM] {msg.content}")
             elif msg.role == MessageRole.USER:
                 lines.append(f"[USER/LEAD] {msg.content}")
             else:
                 lines.append(f"[{msg.agent_id}] {msg.content}")
+
         return "\n\n".join(lines)
 
     def check_consensus(self, agents: list[str], keyword: str) -> bool:
