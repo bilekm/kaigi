@@ -12,8 +12,6 @@ from pathlib import Path
 
 import click
 
-from kaigi.lib.errors import KaigiError
-
 
 def json_option(f):
     """Add --json option to a command."""
@@ -37,17 +35,42 @@ def agents() -> None:
 
 @agents.command("list")
 @json_option
-def agents_list(use_json: bool) -> None:
-    """List all configured AI agents."""
+@click.option("--show-source", is_flag=True, help="Show which config file defines each agent")
+def agents_list(use_json: bool, show_source: bool) -> None:
+    """List all configured AI agents.
+
+    Config Hierarchy:
+      Project (.kaigi/agents.yaml) overrides Global (~/.kaigi/agents.yaml)
+
+    Use --show-source to see which config file each agent comes from.
+    """
     from kaigi.lib.settings import (
-        list_available_agents,
         get_global_settings_path,
         get_project_settings_path,
+        list_available_agents,
+        load_settings_file,
     )
 
     agents = list_available_agents()
+    global_path = get_global_settings_path()
+    project_path = get_project_settings_path()
+
+    # Determine source for each agent (for --show-source)
+    agent_sources = {}
+    if show_source:
+        global_settings = load_settings_file(global_path)
+        project_settings = load_settings_file(project_path) if project_path else None
+
+        for name, _ in agents:
+            if project_settings and name in project_settings.agents:
+                agent_sources[name] = "project"
+            elif name in global_settings.agents:
+                agent_sources[name] = "global"
+            else:
+                agent_sources[name] = "unknown"
 
     if use_json:
+        proj_path = get_project_settings_path()
         output = {
             "agents": [
                 {
@@ -55,21 +78,19 @@ def agents_list(use_json: bool) -> None:
                     "command": config.command,
                     "description": config.description,
                     "timeout": config.timeout,
+                    "source": agent_sources.get(name, "unknown") if show_source else None,
                 }
                 for name, config in agents
             ],
             "global_settings": str(get_global_settings_path()),
-            "project_settings": str(get_project_settings_path()) if get_project_settings_path() else None,
+            "project_settings": str(proj_path) if proj_path else None,
         }
         click.echo(json.dumps(output, indent=2))
     else:
-        global_path = get_global_settings_path()
-        project_path = get_project_settings_path()
-
         click.echo("Agent Settings:")
         click.echo(f"  Global: {global_path}")
         if project_path:
-            click.echo(f"  Project: {project_path}")
+            click.echo(f"  Project: {project_path} (overrides global)")
         click.echo()
 
         if not agents:
@@ -83,24 +104,47 @@ def agents_list(use_json: bool) -> None:
             click.echo('      args: ["-p", "{{prompt}}", "--output-format", "text"]')
             return
 
-        click.echo(f"{'NAME':<15} {'COMMAND':<15} {'DESCRIPTION':<40}")
-        click.echo("-" * 70)
-        for name, config in agents:
-            desc = config.description[:40] if config.description else ""
-            click.echo(f"{name:<15} {config.command:<15} {desc:<40}")
+        if show_source:
+            click.echo(f"{'NAME':<15} {'COMMAND':<15} {'SOURCE':<10} {'DESCRIPTION':<30}")
+            click.echo("-" * 70)
+            for name, config in agents:
+                desc = config.description[:30] if config.description else ""
+                source = agent_sources.get(name, "unknown")
+                click.echo(f"{name:<15} {config.command:<15} {source:<10} {desc:<30}")
+        else:
+            click.echo(f"{'NAME':<15} {'COMMAND':<15} {'DESCRIPTION':<40}")
+            click.echo("-" * 70)
+            for name, config in agents:
+                desc = config.description[:40] if config.description else ""
+                click.echo(f"{name:<15} {config.command:<15} {desc:<40}")
 
 
 @agents.command("init")
 @click.option("--force", is_flag=True, help="Overwrite existing settings")
 @click.option("--project", is_flag=True, help="Create in .kaigi/ (project-level)")
-def agents_init(force: bool, project: bool) -> None:
+@click.option("--from-global", is_flag=True, help="Copy from global config (requires --project)")
+def agents_init(force: bool, project: bool, from_global: bool) -> None:
     """Create a default agents.yaml settings file.
 
     By default creates global settings in ~/.kaigi/agents.yaml.
     Use --project to create project-level settings in .kaigi/agents.yaml.
-    Project settings override global settings.
+
+    Config Hierarchy:
+      1. Project config (.kaigi/agents.yaml) - highest priority
+      2. Global config (~/.kaigi/agents.yaml) - fallback
+
+    Project settings override global settings by agent name.
+
+    Use --from-global with --project to copy your global config as a starting
+    point for customization. This creates a snapshot - future global changes
+    won't affect the project copy.
     """
-    from kaigi.lib.settings import get_global_settings_path, ensure_global_settings_dir
+    from kaigi.lib.settings import ensure_global_settings_dir, get_global_settings_path
+
+    if from_global and not project:
+        click.echo("Error: --from-global requires --project flag.")
+        click.echo("Use: kaigi agents init --project --from-global")
+        sys.exit(1)
 
     if project:
         # Create in current directory
@@ -116,8 +160,53 @@ def agents_init(force: bool, project: bool) -> None:
         click.echo("Use --force to overwrite.")
         sys.exit(1)
 
-    default_settings = '''\
-# Orchestrator Agent Settings
+    if from_global:
+        # Copy from global config
+        global_path = get_global_settings_path()
+
+        if not global_path.exists():
+            click.echo(f"Error: Global config not found: {global_path}")
+            click.echo("Create it first with: kaigi agents init")
+            sys.exit(1)
+
+        try:
+            # Read and validate global config
+            import yaml
+            global_content = global_path.read_text()
+            parsed = yaml.safe_load(global_content)
+
+            if not parsed or not isinstance(parsed, dict):
+                click.echo(f"Error: Global config is not valid YAML: {global_path}")
+                sys.exit(1)
+
+            # Write to project (atomic write via temp file)
+            import tempfile
+            temp_fd, temp_path = tempfile.mkstemp(dir=settings_path.parent, text=True)
+            try:
+                with os.fdopen(temp_fd, 'w') as f:
+                    f.write(global_content)
+                os.replace(temp_path, settings_path)
+            except Exception:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                raise
+
+            click.echo(f"Copied from: {global_path}")
+            click.echo(f"Created: {settings_path}")
+            click.echo()
+            click.echo("Project config is now a snapshot of your global config.")
+            click.echo("Edit it to customize agents for this project.")
+
+        except yaml.YAMLError as e:
+            click.echo(f"Error: Global config has invalid YAML syntax: {e}")
+            sys.exit(1)
+        except Exception as e:
+            click.echo(f"Error copying global config: {e}")
+            sys.exit(1)
+    else:
+        # Create default template
+        default_settings = '''\
+# Kaigi Agent Settings
 # Configure AI agents that can be used in conversation workflows.
 #
 # Usage in workflow.yaml:
@@ -161,23 +250,32 @@ agents:
   #   description: "GLM-4.7 via Z.AI"
 '''
 
-    settings_path.write_text(default_settings)
-    click.echo(f"Created: {settings_path}")
-    click.echo()
-    if project:
-        click.echo("Project-level settings created.")
-        click.echo("These override global settings (~/.kaigi/agents.yaml).")
-    else:
-        click.echo("Configure your agents by editing the file.")
-        click.echo("Use --project to create project-specific settings.")
+        settings_path.write_text(default_settings)
+        click.echo(f"Created: {settings_path}")
+        click.echo()
+        if project:
+            click.echo("Project-level settings created.")
+            click.echo("These override global settings (~/.kaigi/agents.yaml).")
+        else:
+            click.echo("Configure your agents by editing the file.")
+            click.echo("Use --project to create project-specific settings.")
 
 
 @agents.command("show")
 @click.argument("name")
 @json_option
-def agents_show(name: str, use_json: bool) -> None:
-    """Show details for a specific agent."""
-    from kaigi.lib.settings import get_agent_config
+@click.option("--show-source", is_flag=True, help="Show which config file defines this agent")
+def agents_show(name: str, use_json: bool, show_source: bool) -> None:
+    """Show details for a specific agent.
+
+    Use --show-source to see whether this agent comes from project or global config.
+    """
+    from kaigi.lib.settings import (
+        get_agent_config,
+        get_global_settings_path,
+        get_project_settings_path,
+        load_settings_file,
+    )
 
     config = get_agent_config(name)
 
@@ -187,6 +285,25 @@ def agents_show(name: str, use_json: bool) -> None:
         else:
             click.echo(f"Agent '{name}' not found.")
         sys.exit(1)
+
+    # Determine source
+    source = None
+    source_path = None
+    if show_source:
+        project_path = get_project_settings_path()
+        global_path = get_global_settings_path()
+
+        project_settings = load_settings_file(project_path) if project_path else None
+        global_settings = load_settings_file(global_path)
+
+        if project_settings and name in project_settings.agents:
+            source = "project"
+            source_path = str(project_path)
+        elif name in global_settings.agents:
+            source = "global"
+            source_path = str(global_path)
+        else:
+            source = "unknown"
 
     if use_json:
         output = {
@@ -198,9 +315,14 @@ def agents_show(name: str, use_json: bool) -> None:
             "description": config.description,
             "model": config.model,
         }
+        if show_source:
+            output["source"] = source
+            output["source_path"] = source_path
         click.echo(json.dumps(output, indent=2))
     else:
         click.echo(f"Agent: {name}")
+        if show_source and source:
+            click.echo(f"  Source: {source} ({source_path})")
         click.echo(f"  Command: {config.command}")
         click.echo(f"  Args: {' '.join(config.args)}")
         if config.model:
@@ -238,9 +360,10 @@ def _detect_terminal_emulator() -> list[str] | None:
     return None
 
 
-def _start_agent_in_terminal(agent_id: str, command: str, args: list[str], env: dict[str, str]) -> bool:
+def _start_agent_in_terminal(
+    agent_id: str, command: str, args: list[str], env: dict[str, str]
+) -> bool:
     """Start an agent in a new visible terminal window."""
-    import shlex
 
     terminal_cmd = _detect_terminal_emulator()
     if not terminal_cmd:
@@ -299,8 +422,8 @@ def agents_start(name: str, agent_id: str | None, background: bool, terminal: bo
         # Start with custom ID
         kaigi agents start claude --id claude-1
     """
-    from kaigi.lib.settings import get_agent_config
     from kaigi.lib.agent_client import is_agent_running
+    from kaigi.lib.settings import get_agent_config
 
     config = get_agent_config(name)
     if not config:
@@ -351,13 +474,13 @@ def agents_start(name: str, agent_id: str | None, background: bool, terminal: bo
             if is_agent_running(agent_id):
                 click.echo(f"Agent '{agent_id}' is running.")
             else:
-                click.echo(f"Agent may still be initializing. Check the terminal window.")
+                click.echo("Agent may still be initializing. Check the terminal window.")
         else:
             sys.exit(1)
 
     elif background:
         # Daemonize
-        from kaigi.lib.agent_server import get_socket_path, get_pid_path
+        from kaigi.lib.agent_server import get_socket_path
 
         click.echo(f"Starting agent '{agent_id}' in background...")
 
@@ -373,7 +496,7 @@ def agents_start(name: str, agent_id: str | None, background: bool, terminal: bo
 
                 # Redirect stdio
                 sys.stdin.close()
-                with open("/dev/null", "r") as null:
+                with open("/dev/null") as null:
                     os.dup2(null.fileno(), 0)
 
                 log_path = get_socket_path(agent_id).with_suffix(".log")
@@ -381,7 +504,9 @@ def agents_start(name: str, agent_id: str | None, background: bool, terminal: bo
                     os.dup2(log.fileno(), 1)
                     os.dup2(log.fileno(), 2)
 
-                run_agent_server(agent_id, command, args=args, env=env, spawn_mode=config.spawn_mode)
+                run_agent_server(
+                    agent_id, command, args=args, env=env, spawn_mode=config.spawn_mode
+                )
                 sys.exit(0)
             else:
                 # Second parent - exit
@@ -403,7 +528,7 @@ def agents_start(name: str, agent_id: str | None, background: bool, terminal: bo
                 sys.exit(1)
     else:
         # Foreground - run directly
-        from kaigi.lib.agent_server import run_agent_server, get_socket_path
+        from kaigi.lib.agent_server import get_socket_path, run_agent_server
 
         click.echo(f"Starting agent '{agent_id}' in foreground...")
         click.echo(f"Socket: {get_socket_path(agent_id)}")
@@ -436,11 +561,11 @@ def agents_start_all(workflow_file: Path | None, background: bool, terminal: boo
         # Start agents from specific workflow
         kaigi agents start-all examples/my-workflow.yaml --terminal
     """
-    from kaigi.services.parser import parse_workflow_file
-    from kaigi.models.workflow import ConversationWorkflow
-    from kaigi.lib.settings import get_agent_config
     from kaigi.lib.agent_client import is_agent_running
     from kaigi.lib.agent_server import get_socket_path
+    from kaigi.lib.settings import get_agent_config
+    from kaigi.models.workflow import ConversationWorkflow
+    from kaigi.services.parser import parse_workflow_file
 
     # Default to project config
     if workflow_file is None:
@@ -520,7 +645,7 @@ def agents_start_all(workflow_file: Path | None, background: bool, terminal: boo
                     from kaigi.lib.agent_server import run_agent_server
 
                     sys.stdin.close()
-                    with open("/dev/null", "r") as null:
+                    with open("/dev/null") as null:
                         os.dup2(null.fileno(), 0)
 
                     log_path = get_socket_path(agent_id).with_suffix(".log")
@@ -528,7 +653,13 @@ def agents_start_all(workflow_file: Path | None, background: bool, terminal: boo
                         os.dup2(log.fileno(), 1)
                         os.dup2(log.fileno(), 2)
 
-                    run_agent_server(agent_id, config.command, args=filtered_args, env=config.env, spawn_mode=config.spawn_mode)
+                    run_agent_server(
+                        agent_id,
+                        config.command,
+                        args=filtered_args,
+                        env=config.env,
+                        spawn_mode=config.spawn_mode,
+                    )
                     sys.exit(0)
                 else:
                     os._exit(0)
@@ -585,7 +716,7 @@ def agents_stop(agent_id: str | None, stop_all: bool) -> None:
         # Stop all running agents
         kaigi agents stop --all
     """
-    from kaigi.lib.agent_client import stop_agent, stop_all_agents, list_running_agents
+    from kaigi.lib.agent_client import list_running_agents, stop_agent, stop_all_agents
 
     if stop_all:
         count = stop_all_agents()
@@ -793,6 +924,7 @@ def agents_running(use_json: bool) -> None:
 def agents_ping(agent_id: str) -> None:
     """Test connectivity to a running agent."""
     import asyncio
+
     from kaigi.lib.agent_client import AgentClient, AgentNotRunning
 
     async def do_ping():
@@ -826,7 +958,8 @@ def agents_test(agent_id: str, message: str) -> None:
         kaigi agents test claude "Hello, how are you?"
     """
     import asyncio
-    from kaigi.lib.agent_client import send_prompt, AgentNotRunning
+
+    from kaigi.lib.agent_client import AgentNotRunning, send_prompt
 
     async def do_test():
         try:

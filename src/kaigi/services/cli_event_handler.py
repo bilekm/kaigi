@@ -120,7 +120,7 @@ class CliEventHandler(ConversationEventHandler):
             team = [a for a in agents if a != lead]
             click.echo(f"Team: {', '.join(self._agent(a) for a in team)}")
         else:
-            click.echo(f"Mode: Team collaboration")
+            click.echo("Mode: Team collaboration")
             click.echo(f"Agents: {', '.join(self._agent(a) for a in agents)}")
         click.echo()
 
@@ -175,7 +175,8 @@ class CliEventHandler(ConversationEventHandler):
         if content:
             click.echo(content)
         click.secho("=" * 50, fg="green")
-        click.echo("[Type 'approve' to accept, or provide feedback to continue]")
+        click.echo("[Type 'approve' to accept, 'approve <agent-id>' to choose executor,")
+        click.echo(" or 'approve <agent-id> <model>' to override model, or provide feedback to continue]")
 
     def on_consensus_too_early(self, current_round: int, min_rounds: int) -> None:
         """Display message when consensus detected too early."""
@@ -186,18 +187,13 @@ class CliEventHandler(ConversationEventHandler):
             fg="yellow",
         )
 
-    async def prompt_user_approval(self, content: str) -> bool:
+    async def prompt_user_approval(self, content: str) -> str:
         """Prompt user to approve consensus."""
         response = await self._get_input("> ")
-
-        if response.lower() == "approve":
-            return True
-
-        return False
+        return response.strip()
 
     async def prompt_topic(self, workflow_name: str, agents: list[str], agent_types: dict[str, str] | None = None) -> str | None:
         """Prompt user for topic."""
-        from kaigi.lib.agent_client import list_running_agents
 
         # Store the agent type mapping for display in _show_running_agents
         if agent_types:

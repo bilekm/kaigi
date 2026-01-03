@@ -7,14 +7,13 @@ import glob
 import json
 import os
 import re
-import signal
-import yaml
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import click
+import yaml
 
 from kaigi.lib.errors import (
     KaigiError,
@@ -35,18 +34,16 @@ from kaigi.lib.prompts import (
 from kaigi.lib.settings import get_agent_config
 from kaigi.lib.signals import signal_handler_context
 from kaigi.models.execution import (
-    ConversationRecord,
     ConsensusStatus,
+    ConversationRecord,
     ExecutionStatus,
     MessageRole,
-    StepStatus,
     TurnResult,
 )
 from kaigi.models.workflow import ConversationAgent, ConversationWorkflow
 from kaigi.services.event_handler import ConversationEventHandler, NullEventHandler
 from kaigi.services.store import WorkflowStore
 from kaigi.services.tools import CapabilityChecker, ToolCall, ToolExecutor, ToolResult
-
 
 # Global reference for signal handling
 _current_process: asyncio.subprocess.Process | None = None
@@ -255,30 +252,53 @@ class ConversationExecutor:
                         self.event_handler.on_consensus_reached(record.consensus_content or "")
                         # In non-interactive mode, auto-approve consensus
                         if self.non_interactive:
-                            approved = True
+                            user_response = "approve"
                         else:
-                            approved = await self.event_handler.prompt_user_approval(
+                            user_response = await self.event_handler.prompt_user_approval(
                                 record.consensus_content or ""
                             )
+
+                        # Parse the approval command
+                        approved, agent_id_override, model_override = self._parse_approval_command(user_response)
+
                         if approved:
                             record.consensus_status = ConsensusStatus.APPROVED
-                            # Enter execution phase - have first agent execute the agreed changes
+                            # Enter execution phase - have designated agent execute the agreed changes
                             click.echo()
                             click.echo("=" * 50)
                             click.echo("EXECUTION PHASE")
                             click.echo("=" * 50)
 
-                            # Get first agent to execute the plan
-                            first_agent = self.workflow.agents[0]
-                            click.echo(f"Asking {first_agent.id} to execute the agreed changes...")
+                            # Agent resolution: runtime override > workflow config > first agent
+                            executor_agent = None
+                            if agent_id_override:
+                                # Runtime override from approval command
+                                executor_agent = self.workflow.get_agent(agent_id_override)
+                            elif self.workflow.execution.executor_agent:
+                                # Workflow config
+                                executor_agent = self.workflow.get_agent(self.workflow.execution.executor_agent)
+
+                            if executor_agent is None:
+                                # Fallback to first agent
+                                executor_agent = self.workflow.agents[0]
+
+                            click.echo(f"Asking {executor_agent.id} to execute the agreed changes...")
+
+                            # Apply model override if specified
+                            if model_override:
+                                # Create a copy of the agent with model override
+                                from copy import copy
+                                executor_agent = copy(executor_agent)
+                                executor_agent.model = model_override
+                                click.echo(f"Using model override: {model_override}")
 
                             # Build execution prompt
-                            exec_prompt = self._build_execution_prompt(record, first_agent)
+                            exec_prompt = self._build_execution_prompt(record, executor_agent)
                             record.add_message(MessageRole.SYSTEM, exec_prompt)
 
                             # Execute WITH write permission, using native tools
                             await self._agent_turn(
-                                record, first_agent, workflow_id,
+                                record, executor_agent, workflow_id,
                                 with_write_permission=True,
                                 execution_prompt=exec_prompt,
                                 use_native_tools=True,
@@ -289,8 +309,11 @@ class ConversationExecutor:
                             self.store.save_conversation(workflow_id, record)
                             break
                         else:
+                            # User provided feedback or invalid approval - continue discussion
+                            if user_response:
+                                record.add_message(MessageRole.USER, user_response)
+                                self.store.save_conversation(workflow_id, record)
                             record.consensus_status = ConsensusStatus.REJECTED
-                            # Continue discussion
 
                     # Prompt user for input between rounds (skip in non-interactive mode)
                     if not _cancelled and not self.non_interactive:
@@ -309,7 +332,7 @@ class ConversationExecutor:
                         record.complete()
                         self.event_handler.on_max_rounds_reached(self.workflow.max_rounds)
 
-                record.ended_at = datetime.now(timezone.utc)
+                record.ended_at = datetime.now(UTC)
                 self.store.save_conversation(workflow_id, record)
 
                 return self._format_result(record)
@@ -639,7 +662,7 @@ class ConversationExecutor:
 
             self.event_handler.on_agent_turn_complete(agent.id, duration, output)
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             turn.fail(f"Timeout after {agent.timeout}s")
 
             self.logger.error("Agent timeout", agent_id=agent.id, timeout=agent.timeout)
@@ -799,11 +822,11 @@ class ConversationExecutor:
                 process.communicate(),
                 timeout=timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.terminate()
             try:
                 await asyncio.wait_for(process.wait(), timeout=2)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
                 await process.wait()
             raise
@@ -949,7 +972,7 @@ Execute the consensus now.
                         )
                         break
 
-                    with open(path, "r") as f:
+                    with open(path) as f:
                         content = f.read(self.MAX_CONTEXT_BYTES_PER_FILE)
                         files[path] = content
                         total_bytes += len(content)
@@ -981,7 +1004,6 @@ Execute the consensus now.
         Raises:
             ValueError: If agent_type is not found in any config file
         """
-        import os
 
         # Paths to check (project takes precedence)
         project_config = Path.cwd() / ".kaigi" / "subagents.yaml"
@@ -1065,6 +1087,35 @@ Execute the consensus now.
                 idx = msg.content.find(keyword)
                 record.consensus_content = msg.content[idx:].strip()
                 return
+
+    def _parse_approval_command(self, response: str) -> tuple[bool, str | None, str | None]:
+        """Parse 'approve [agent-id] [model]' command.
+
+        Returns: (is_valid_approval, agent_id, model_override)
+        Returns (False, None, None) for:
+        - Non-approval input (feedback, discussion)
+        - Invalid agent ID (treat as feedback input)
+        """
+        parts = response.strip().split()
+        if not parts or parts[0].lower() not in ["approve", "y", "yes"]:
+            # Not an approval command - treat as feedback
+            return (False, None, None)
+
+        # It's an approval attempt
+        agent_id = parts[1] if len(parts) > 1 else None
+        model = parts[2] if len(parts) > 2 else None
+
+        # Validate agent_id if provided
+        if agent_id:
+            agent_ids = [a.id for a in self.workflow.agents]
+            if agent_id not in agent_ids:
+                # Invalid agent - but user clearly meant to approve
+                # Print error and treat as rejection so they can retry
+                click.echo(f"Error: Agent '{agent_id}' not in workflow.")
+                click.echo(f"Available agents: {', '.join(agent_ids)}")
+                return (False, None, None)
+
+        return (True, agent_id, model)
 
     async def _prompt_user_input(self) -> str | None:
         """Prompt user for input between rounds, handling slash commands.
@@ -1293,16 +1344,11 @@ Execute the consensus now.
             agents_config[agent.id] = agent_data
 
         # Write to file
-        config_content = {
-            "# Orchestrator Project Agents": None,
-            "# Saved from conversation session": None,
-            "agents": agents_config,
-        }
-
-        # Use yaml to write properly
         yaml_content = "# Orchestrator Project Agents\n"
         yaml_content += "# Saved from conversation session\n\n"
-        yaml_content += yaml.dump({"agents": agents_config}, default_flow_style=False, sort_keys=False)
+        yaml_content += yaml.dump(
+            {"agents": agents_config}, default_flow_style=False, sort_keys=False
+        )
 
         config_path.write_text(yaml_content)
         click.echo(f"Saved {len(agents_config)} agents to: {config_path}")
@@ -1395,8 +1441,8 @@ def execute_conversation(
     """
     # Import here to avoid circular dependency
     if event_handler is None:
-        from kaigi.services.cli_event_handler import CliEventHandler
         from kaigi.lib.logging import disable_logging
+        from kaigi.services.cli_event_handler import CliEventHandler
 
         # Disable JSON logs for cleaner output
         disable_logging()

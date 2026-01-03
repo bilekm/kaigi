@@ -7,7 +7,6 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-
 # Validation patterns
 NAME_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$")
 STEP_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,49}$")
@@ -151,6 +150,13 @@ class ConversationAgent(BaseModel):
         return self.env
 
 
+class ExecutionConfig(BaseModel):
+    """Configuration for execution phase after consensus."""
+
+    # Agent to execute the consensus (if not specified, uses first agent in workflow)
+    executor_agent: str | None = None
+
+
 class ConversationWorkflow(BaseModel):
     """A conversation-mode workflow where agents discuss a topic."""
 
@@ -177,6 +183,7 @@ class ConversationWorkflow(BaseModel):
     preload_context: bool = Field(default=False)  # Whether to pre-load context files into prompt
 
     consensus_keyword: str = "AGREED:"  # How agents signal agreement
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)  # Execution phase config
 
     @field_validator("name")
     @classmethod

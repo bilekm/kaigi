@@ -520,7 +520,7 @@ class TestEventHandlerIntegration:
         mock_handler.on_agent_turn_start = Mock()
         mock_handler.on_agent_turn_complete = Mock()
         mock_handler.on_consensus_reached = Mock()
-        mock_handler.prompt_user_approval = AsyncMock(return_value=True)
+        mock_handler.prompt_user_approval = AsyncMock(return_value="approve")
         mock_handler.prompt_user_input = AsyncMock(return_value=None)
         mock_handler.on_max_rounds_reached = Mock()
 

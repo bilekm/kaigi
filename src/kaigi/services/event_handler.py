@@ -7,7 +7,6 @@ enabling clean separation of concerns and easier testing.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
 
 
 class ConversationEventHandler(ABC):
@@ -107,14 +106,14 @@ class ConversationEventHandler(ABC):
         """
 
     @abstractmethod
-    async def prompt_user_approval(self, content: str) -> bool:
+    async def prompt_user_approval(self, content: str) -> str:
         """Prompt user to approve or reject the consensus.
 
         Args:
             content: The consensus content to display
 
         Returns:
-            True if user approved, False otherwise
+            User response string (e.g., "approve", "approve architect opus-4", feedback text)
         """
 
     @abstractmethod
@@ -236,9 +235,9 @@ class NullEventHandler(ConversationEventHandler):
     def on_consensus_too_early(self, current_round: int, min_rounds: int) -> None:
         pass
 
-    async def prompt_user_approval(self, content: str) -> bool:
+    async def prompt_user_approval(self, content: str) -> str:
         # In non-interactive mode, auto-approve
-        return True
+        return "approve"
 
     async def prompt_topic(self, workflow_name: str, agents: list[str], agent_types: dict[str, str] | None = None) -> str | None:
         return None
