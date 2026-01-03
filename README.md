@@ -2,6 +2,8 @@
 
 CLI-based multi-agent collaboration platform. Run multi-agent conversations where AI agents discuss topics, collaborate on tasks, and reach consensus.
 
+> **Multi-Agent Collaboration:** This project is developed through collaboration between humans and multiple AI agents including Claude (Anthropic), GLM-4.7, and Gemini 3 Pro.
+
 ## Quick Start
 
 ```bash

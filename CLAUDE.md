@@ -26,4 +26,18 @@ Python 3.11+: Follow standard conventions
 - 001-agent-workflow: Added Python 3.11+ + PyYAML (workflow parsing), Click (CLI framework), Pydantic (data validation)
 
 <!-- MANUAL ADDITIONS START -->
+
+## Commit Message Format
+
+All commits should use the following footer:
+
+```
+Multi-agent collaboration: Claude (Anthropic), GLM-4.7, Gemini 3 Pro
+```
+
+This can be auto-included by configuring the git commit template:
+```bash
+git config commit.template .gitmessage
+```
+
 <!-- MANUAL ADDITIONS END -->
