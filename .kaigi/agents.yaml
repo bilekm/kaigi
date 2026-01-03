@@ -14,7 +14,7 @@ agents:
   # Claude Code CLI
   claude:
     command: claude
-    args: ["-p", "{{prompt}}", "--output-format", "text"]
+    args: ["-p", "{{prompt}}", "--output-format", "text", "--no-session-persistence"]
     timeout: 300
     spawn_mode: true
     description: "Claude Code CLI"
@@ -34,7 +34,7 @@ agents:
   # Note: API is slower, may need up to 60s timeout
   glm:
     command: claude
-    args: ["-p", "{{prompt}}", "--output-format", "text"]
+    args: ["-p", "{{prompt}}", "--output-format", "text", "--no-session-persistence"]
     env:
       ANTHROPIC_BASE_URL: "https://api.z.ai/api/anthropic"
       ANTHROPIC_AUTH_TOKEN: "${ZAI_API_KEY}"

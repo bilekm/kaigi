@@ -2,7 +2,7 @@
 
 CLI-based multi-agent collaboration platform. Run multi-agent conversations where AI agents discuss topics, collaborate on tasks, and reach consensus.
 
-> **Multi-Agent Collaboration:** This project is developed through collaboration between humans and multiple AI agents including Claude (Anthropic), GLM-4.7, and Gemini 3 Pro.
+> **Multi-Agent Collaboration:** This project is developed through collaboration between author and multiple AI agents including Claude (Anthropic), GLM-4.7, and Gemini 3 Pro.
 
 ## Quick Start
 
@@ -24,7 +24,7 @@ kaigi
 
 ## Features
 
-- **Multi-agent conversations**: Claude, Copilot, and other AI agents discuss topics together
+- **Multi-agent conversations**: Claude, GLM, Copilot and other AI agents discuss topics together
 - **Two collaboration modes**: Team (democratic) or Orchestrated (lead assigns tasks)
 - **Persistent agents**: Keep agents running for instant responses (no cold-start latency)
 - **Interactive control**: Inject messages, change agents mid-conversation
