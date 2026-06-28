@@ -1117,10 +1117,21 @@ class ConversationExecutor:
             _current_process = None
 
         if process.returncode != 0:
+            # `claude -p` (and many CLI agents) print API errors to STDOUT, not
+            # stderr - so include both, or failures are undiagnosable (we only ever
+            # saw a benign startup warning otherwise).
+            err = stderr.decode().strip()
+            out = stdout.decode().strip()
+            detail = "\n".join(
+                part for part in (
+                    f"[stderr] {err}" if err else "",
+                    f"[stdout] {out}" if out else "",
+                ) if part
+            )
             raise agent_failed(
                 agent.id,
                 process.returncode,
-                stderr.decode(),
+                detail or "(no output captured)",
             )
 
         return stdout.decode().strip()
