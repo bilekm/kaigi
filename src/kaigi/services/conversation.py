@@ -18,15 +18,21 @@ import yaml
 from kaigi.lib.errors import (
     KaigiError,
     agent_failed,
+    agent_rate_limited,
     agent_timeout,
     conversation_error,
+    detect_rate_limit,
     workflow_invalid,
     workflow_locked,
 )
 from kaigi.lib.logging import get_logger
+from kaigi.lib.agent_state import AgentStateStore
 from kaigi.lib.prompts import (
+    build_followup_prompt,
     build_lead_prompt,
     build_orchestrated_system_message,
+    build_project_prompt,
+    build_rules_prompt,
     build_team_member_prompt,
     build_team_prompt,
     build_team_system_message,
@@ -73,13 +79,26 @@ class ConversationExecutor:
         store: WorkflowStore | None = None,
         event_handler: ConversationEventHandler | None = None,
         non_interactive: bool = False,
+        persistent_mode: bool = False,
     ):
         self.workflow = workflow
         self.yaml_content = yaml_content
         self.store = store or WorkflowStore()
         self.event_handler = event_handler or NullEventHandler()
         self.non_interactive = non_interactive
+        self.persistent_mode = persistent_mode
         self.logger = get_logger()
+        self.starting_agent_id: str | None = None  # Agent to start conversation with
+        self._initialized_agents: set[str] = set()  # Agents that received full prompt (session)
+
+        # Persistent agent state tracking (across sessions)
+        self._agent_state = AgentStateStore()
+
+        # Check if workflow changed - invalidate all agent states if so
+        if self._agent_state.check_workflow_changed(yaml_content):
+            self.logger.debug("Workflow changed, invalidating agent states")
+            self._agent_state.invalidate_all()
+            self._agent_state.update_workflow_hash(yaml_content)
 
     def execute(self) -> dict[str, Any]:
         """Execute the conversation synchronously."""
@@ -144,6 +163,10 @@ class ConversationExecutor:
                     record.cancel()
                     self.store.save_conversation(workflow_id, record)
                     return self._format_result(record)
+
+                # Parse topic for /agentid <prompt> pattern
+                topic, starting_agent = self._parse_starting_agent(topic)
+
                 self.workflow.topic = topic
                 record.topic = topic
                 topic_was_prompted = True
@@ -226,12 +249,43 @@ class ConversationExecutor:
                         # Team mode: round-robin all agents
                         turn_agents = self.workflow.agents
 
+                    # Rotate turn order if starting agent specified (first round only)
+                    if self.starting_agent_id and record.current_round == 1:
+                        turn_agents = self._rotate_to_starting_agent(turn_agents, self.starting_agent_id)
+
                     # Each agent takes a turn
                     for agent in turn_agents:
                         if _cancelled or agent is None:
                             break
 
-                        await self._agent_turn(record, agent, workflow_id)
+                        # Try agent turn, handle rate limits
+                        try:
+                            await self._agent_turn(record, agent, workflow_id)
+                        except KaigiError as e:
+                            if e.code.value == "AGENT_RATE_LIMITED":
+                                # Handle rate limit - prompt user for action
+                                action = await self._handle_rate_limit(
+                                    record, agent, e.details.get("reset_time", "")
+                                )
+                                if action == "quit":
+                                    record.cancel()
+                                    self.store.save_conversation(workflow_id, record)
+                                    return self._format_result(record)
+                                elif action == "skip":
+                                    continue  # Skip to next agent
+                                elif action.startswith("replace:"):
+                                    # Replace agent for this turn (one-time)
+                                    replacement_id = action.split(":", 1)[1]
+                                    replacement = self._get_replacement_agent(replacement_id)
+                                    if replacement:
+                                        try:
+                                            await self._agent_turn(record, replacement, workflow_id)
+                                        except KaigiError:
+                                            pass  # If replacement also fails, just continue
+                                # "wait" - just continue, will retry on next round
+                            else:
+                                raise
+
                         self.store.save_conversation(workflow_id, record)
 
                         # Check for consensus/decision after each turn
@@ -347,6 +401,54 @@ class ConversationExecutor:
                             record.cancel()
                             self.store.save_conversation(workflow_id, record)
                             break
+                        elif user_input == "__new_topic__":
+                            # Clear agent state and prompt for new topic
+                            self._agent_state.reset()
+                            self._initialized_agents.clear()
+                            click.echo()
+                            click.echo(click.style("Starting new topic...", fg="green"))
+                            click.echo()
+
+                            # Prompt for new topic
+                            agent_ids = [a.id for a in self.workflow.agents]
+                            agent_types = {}
+                            for agent in self.workflow.agents:
+                                agent_type = agent.agent if agent.agent else agent.id
+                                agent_types[agent_type] = agent.id
+
+                            topic = await self.event_handler.prompt_topic(
+                                self.workflow.name, agent_ids, agent_types
+                            )
+                            if topic is None:
+                                record.cancel()
+                                self.store.save_conversation(workflow_id, record)
+                                break
+
+                            # Parse topic for /agentid <prompt> pattern
+                            topic, starting_agent = self._parse_starting_agent(topic)
+
+                            # Update workflow and record
+                            self.workflow.topic = topic
+                            record.topic = topic
+                            record.current_round = 0
+                            record.consensus_status = ConsensusStatus.PENDING
+                            record.consensus_content = None
+                            record.messages.clear()
+
+                            # Add new system message with topic
+                            if self.workflow.collaboration == "orchestrated":
+                                lead_id = self.workflow.lead or ""
+                                team_ids = [a.id for a in self.workflow.get_team_agents()]
+                                system_msg = build_orchestrated_system_message(
+                                    self.workflow.topic, lead_id, team_ids
+                                )
+                            else:
+                                system_msg = build_team_system_message(self.workflow.topic, agent_ids)
+                            record.add_message(MessageRole.SYSTEM, system_msg)
+                            self.store.save_conversation(workflow_id, record)
+
+                            # Continue loop with new topic
+                            continue
                         elif user_input:
                             record.add_message(MessageRole.USER, user_input)
                             self.store.save_conversation(workflow_id, record)
@@ -460,6 +562,33 @@ class ConversationExecutor:
                     continue
 
         return tool_calls
+
+    async def _handle_rate_limit(
+        self,
+        record: ConversationRecord,
+        agent: ConversationAgent,
+        reset_time: str,
+    ) -> str:
+        """Handle rate limit - prompt user for action."""
+        return await self.event_handler.on_agent_rate_limited(agent.id, reset_time)
+
+    def _get_replacement_agent(self, agent_ref: str) -> ConversationAgent | None:
+        """Get a replacement agent by reference name."""
+        # Check if it's an existing agent in the workflow
+        for agent in self.workflow.agents:
+            if agent.id == agent_ref or agent.agent == agent_ref:
+                return agent
+
+        # Try to create from settings
+        config = get_agent_config(agent_ref)
+        if config:
+            return ConversationAgent(
+                id=f"temp_{agent_ref}",
+                agent=agent_ref,
+                persona=f"Temporary replacement for rate-limited agent.",
+            )
+
+        return None
 
     async def _execute_tool_loop(
         self,
@@ -691,6 +820,18 @@ class ConversationExecutor:
                 # Use kaigi's tool loop (for discussion phase)
                 output = await self._execute_tool_loop(agent, prompt, with_write_permission=with_write_permission)
 
+            # Check for rate limit in output
+            is_rate_limited, reset_time = detect_rate_limit(output)
+            if is_rate_limited:
+                turn.fail(f"Rate limit hit")
+                self.logger.warning(
+                    "Agent rate limited",
+                    agent_id=agent.id,
+                    reset_time=reset_time,
+                )
+                self.event_handler.on_agent_turn_error(agent.id, f"RATE_LIMITED (resets {reset_time})")
+                raise agent_rate_limited(agent.id, reset_time)
+
             # Add response as message (strip thinking blocks for cleaner history)
             clean_output = self._strip_thinking_blocks(output)
             msg = record.add_message(MessageRole.AGENT, clean_output, agent_id=agent.id)
@@ -718,6 +859,19 @@ class ConversationExecutor:
             raise
 
         except Exception as e:
+            # Check if the exception message indicates rate limit
+            error_str = str(e)
+            is_rate_limited, reset_time = detect_rate_limit(error_str)
+            if is_rate_limited:
+                turn.fail(f"Rate limit hit")
+                self.logger.warning(
+                    "Agent rate limited (from error)",
+                    agent_id=agent.id,
+                    reset_time=reset_time,
+                )
+                self.event_handler.on_agent_turn_error(agent.id, f"RATE_LIMITED (resets {reset_time})")
+                raise agent_rate_limited(agent.id, reset_time)
+
             turn.fail(str(e))
 
             self.logger.error("Agent error", agent_id=agent.id, error=str(e))
@@ -725,6 +879,70 @@ class ConversationExecutor:
             self.event_handler.on_agent_turn_error(agent.id, str(e))
 
             raise conversation_error(f"Agent '{agent.id}' failed: {e}")
+
+    def _parse_starting_agent(self, topic: str) -> tuple[str, str | None]:
+        """Parse topic for /agentid <prompt> pattern.
+
+        Args:
+            topic: The raw topic string
+
+        Returns:
+            Tuple of (clean_topic, starting_agent_id)
+            - clean_topic: Topic with /agentid command stripped
+            - starting_agent_id: Agent ID to start with, or None
+        """
+        # Check if topic starts with /agentid pattern
+        pattern = r'^/([a-zA-Z0-9_-]+)\s+(.+)$'
+        match = re.match(pattern, topic, re.DOTALL)
+
+        if not match:
+            return topic, None
+
+        agent_id = match.group(1)
+        clean_topic = match.group(2)
+
+        # Validate the agent exists in workflow
+        agent = self.workflow.get_agent(agent_id)
+        if not agent:
+            # Invalid agent ID - treat as regular topic (don't parse as command)
+            return topic, None
+
+        # Valid agent - set starting agent and return clean topic
+        self.starting_agent_id = agent_id
+        self.logger.info(
+            "Starting conversation with specific agent",
+            agent_id=agent_id,
+        )
+        return clean_topic, agent_id
+
+    def _rotate_to_starting_agent(
+        self,
+        agents: list[ConversationAgent],
+        starting_agent_id: str,
+    ) -> list[ConversationAgent]:
+        """Rotate agent list so specified agent is first.
+
+        Args:
+            agents: List of agents in default order
+            starting_agent_id: ID of agent to place first
+
+        Returns:
+            Rotated list with starting agent first, followed by remaining agents
+            in original order. If starting agent not found, returns original list.
+        """
+        # Find the starting agent's index
+        start_index = None
+        for i, agent in enumerate(agents):
+            if agent.id == starting_agent_id:
+                start_index = i
+                break
+
+        if start_index is None:
+            # Agent not found - return original list
+            return agents
+
+        # Rotate: agents from start_index onward, then agents before start_index
+        return agents[start_index:] + agents[:start_index]
 
     def _resolve_agent(self, agent: ConversationAgent) -> tuple[str, list[str], dict[str, str], int, str | None]:
         """Resolve agent configuration from settings if needed.
@@ -788,16 +1006,13 @@ class ConversationExecutor:
                     agent_id=agent_id,
                 )
 
-                # Get model for persistent agent
-                _, _, _, timeout, model = self._resolve_agent(agent)
+                # Get timeout for persistent agent
+                # Note: Model is configured in agent's args (--model flag), not via /model command
+                # The /model command only works in interactive mode, not with -p flag
+                _, _, _, timeout, _ = self._resolve_agent(agent)
 
-                # Build prompt with model if specified
-                effective_prompt = prompt
-                if model:
-                    effective_prompt = f"/model {model}\n{prompt}"
-
-                # Send via IPC
-                return await send_prompt(agent_id, effective_prompt, timeout=timeout)
+                # Send via IPC (model already set via agent's --model arg)
+                return await send_prompt(agent_id, prompt, timeout=timeout)
 
         except ImportError:
             pass  # Agent client not available
@@ -890,11 +1105,113 @@ class ConversationExecutor:
         record: ConversationRecord,
         agent: ConversationAgent,
     ) -> str:
-        """Build the prompt for an agent's turn."""
-        history = record.get_conversation_history()
+        """Build the prompt for an agent's turn.
 
+        Uses persistent state to avoid sending duplicate context to agents
+        with persistent memory. Prompt selection:
+
+        1. Agent never seen this workflow → Full prompt (rules + project + topic)
+        2. Agent knows rules, new session → Project prompt (project + topic)
+        3. Agent addressed this session → Compact prompt (just new messages)
+        """
+        agent_list = [a.id for a in self.workflow.agents]
+
+        # Determine what context agent needs
+        needs_rules = self._agent_state.needs_rules(agent.id)
+        in_session = agent.id in self._initialized_agents
+
+        if needs_rules:
+            # Agent never seen this workflow - send everything
+            self.logger.debug(f"Agent {agent.id}: sending full context (first time)")
+            self._agent_state.mark_rules_sent(agent.id)
+            self._agent_state.mark_project_sent(agent.id)
+            self._initialized_agents.add(agent.id)
+
+            # Build full prompt using existing templates
+            return self._build_full_prompt(agent, record.get_conversation_history())
+
+        elif not in_session:
+            # Agent knows rules from previous session, but new topic this session
+            self.logger.debug(f"Agent {agent.id}: sending project context (new session)")
+            self._initialized_agents.add(agent.id)
+
+            # Send project context (agent recalls rules from memory)
+            return build_project_prompt(
+                agent_id=agent.id,
+                persona=agent.persona,
+                topic=self.workflow.topic,
+                agent_list=agent_list,
+                collaboration_mode=self.workflow.collaboration,
+                min_rounds=self.workflow.min_rounds,
+                history=record.get_conversation_history(),
+            )
+
+        else:
+            # Compact follow-up. Send only the delta (messages since this agent's
+            # last turn) ONLY to agents that retain context across turns - otherwise
+            # a stateless (spawn/no-session-persistence) agent would lose all prior
+            # context. Default to full history when retention is not guaranteed.
+            if self._agent_retains_context(agent):
+                history = record.get_conversation_history(for_agent_id=agent.id)
+                self.logger.debug(f"Agent {agent.id}: sending compact prompt (delta history)")
+            else:
+                history = record.get_conversation_history()
+                self.logger.debug(f"Agent {agent.id}: sending compact prompt (full history)")
+            return build_followup_prompt(
+                agent_id=agent.id,
+                history=history,
+                consensus_keyword=self.workflow.consensus_keyword,
+            )
+
+    def _agent_retains_context(self, agent: ConversationAgent) -> bool:
+        """Whether an agent retains conversation context across turns.
+
+        Only context-retaining agents can safely receive incremental (delta)
+        history. An agent retains context only when ALL of the following hold:
+          - a persistent server is currently running for it (PTY session alive),
+          - it is NOT configured for spawn-per-prompt mode, and
+          - its args do not disable session persistence.
+
+        Defaults to False (safe: send full history) whenever retention cannot be
+        confirmed.
+        """
+        agent_id = agent.agent or agent.id
+
+        try:
+            from kaigi.lib.agent_client import is_agent_running
+
+            if not is_agent_running(agent_id):
+                return False
+        except Exception:
+            return False
+
+        spawn_mode = False
+        args = agent.args
+        if agent.is_reference():
+            config = get_agent_config(agent.agent)
+            if config is None:
+                return False
+            spawn_mode = config.spawn_mode
+            args = agent.args if agent.args else config.args
+
+        if spawn_mode:
+            return False
+        if any("--no-session-persistence" in arg for arg in args):
+            return False
+        return True
+
+    def _build_full_prompt(
+        self,
+        agent: ConversationAgent,
+        history: str,
+    ) -> str:
+        """Build full prompt with rules + project context.
+
+        Used when agent has never seen this workflow before.
+        Falls back to existing templates for compatibility.
+        """
+        # Use existing templates for full prompt (they include everything)
         if self.workflow.collaboration == "orchestrated":
-            # Orchestrated mode: different prompts for lead vs team members
             if agent.id == self.workflow.lead:
                 team_list = ", ".join(a.id for a in self.workflow.get_team_agents())
                 return build_lead_prompt(
@@ -905,6 +1222,7 @@ class ConversationExecutor:
                     history=history,
                     team_list=team_list,
                     min_rounds=self.workflow.min_rounds,
+                    compact=False,
                 )
             else:
                 return build_team_member_prompt(
@@ -914,9 +1232,9 @@ class ConversationExecutor:
                     lead_id=self.workflow.lead or "",
                     history=history,
                     min_rounds=self.workflow.min_rounds,
+                    compact=False,
                 )
         else:
-            # Team mode: equal collaboration
             return build_team_prompt(
                 agent_id=agent.id,
                 persona=agent.persona,
@@ -924,6 +1242,7 @@ class ConversationExecutor:
                 consensus_keyword=self.workflow.consensus_keyword,
                 history=history,
                 min_rounds=self.workflow.min_rounds,
+                compact=False,
             )
 
     def _build_execution_prompt(
@@ -1233,6 +1552,8 @@ Execute the consensus now.
                     self._cmd_config_show()
                 else:
                     self._cmd_config()
+            elif cmd == "/clear":
+                return "__new_topic__"
             elif cmd == "/quit":
                 return "__quit__"
             else:
@@ -1257,6 +1578,7 @@ Execute the consensus now.
         click.echo(f"  {click.style('/config show', fg='bright_yellow')}                  Display project config")
         click.echo()
         click.echo("Other:")
+        click.echo(f"  {click.style('/clear', fg='bright_yellow')}                        Start fresh: clear history & prompt for new topic")
         click.echo(f"  {click.style('/help', fg='bright_yellow')}                         Show this help")
         click.echo(f"  {click.style('/quit', fg='bright_yellow')}                         End conversation")
         click.echo()
@@ -1431,6 +1753,19 @@ Execute the consensus now.
         click.echo(project_path.read_text())
         click.echo("---")
 
+    def _cmd_clear(self) -> None:
+        """Clear agent context state.
+
+        Clears kaigi's tracking of what context has been sent to agents.
+        Next prompt will resend full kaigi rules to all agents.
+        """
+        self._agent_state.reset()
+        self._initialized_agents.clear()
+        click.echo()
+        click.echo(f"{click.style('Cleared', fg='green')}")
+        click.echo("Next prompt will send full kaigi rules to all agents.")
+        click.echo()
+
     def _format_result(self, record: ConversationRecord) -> dict[str, Any]:
         """Format result for output."""
         return {
@@ -1471,6 +1806,8 @@ def execute_conversation(
     yaml_content: str,
     event_handler: ConversationEventHandler | None = None,
     non_interactive: bool = False,
+    enable_color: bool = True,
+    persistent_mode: bool = False,
 ) -> dict[str, Any]:
     """Execute a conversation workflow.
 
@@ -1481,6 +1818,8 @@ def execute_conversation(
         yaml_content: Raw YAML content for storage
         event_handler: Event handler for UI (defaults to CliEventHandler)
         non_interactive: If True, skip prompts and auto-approve consensus
+        enable_color: Whether to enable colorized output when using default CliEventHandler (default: True)
+        persistent_mode: If True, conversation will return to shell after completion (default: False)
     """
     # Import here to avoid circular dependency
     if event_handler is None:
@@ -1489,12 +1828,13 @@ def execute_conversation(
 
         # Disable JSON logs for cleaner output
         disable_logging()
-        event_handler = CliEventHandler()
+        event_handler = CliEventHandler(enable_color=enable_color)
 
     executor = ConversationExecutor(
         workflow=workflow,
         yaml_content=yaml_content,
         event_handler=event_handler,
         non_interactive=non_interactive,
+        persistent_mode=persistent_mode,
     )
     return executor.execute()

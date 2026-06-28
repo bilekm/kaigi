@@ -4,10 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kaigi"
-version = "0.2.0"
+version = "0.2.0.7"
 description = "会議 (kaigi) - CLI-based multi-agent collaboration platform"
+readme = "README.md"
 requires-python = ">=3.11"
-license = "MIT"
+license = { text = "MIT" }
 authors = [
     { name = "Kaigi Team" }
 ]
@@ -16,7 +17,25 @@ dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.0",
     "prompt_toolkit>=3.0.0",
+    "pygments>=2.15.0",
 ]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+    "Topic :: Utilities",
+]
+
+[project.urls]
+Homepage = "https://github.com/bilekm/kaigi"
+Repository = "https://github.com/bilekm/kaigi"
+Issues = "https://github.com/bilekm/kaigi/issues"
 
 [project.optional-dependencies]
 dev = [

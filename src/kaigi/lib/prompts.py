@@ -1,4 +1,71 @@
-"""Prompt templates for conversation mode."""
+"""Prompt templates for conversation mode.
+
+Prompt architecture for agents with persistent memory:
+1. KAIGI_RULES - Sent once at agent startup (collaboration protocol, tools)
+2. PROJECT_CONTEXT - Sent once on first turn (persona, topic, team)
+3. COMPACT/FOLLOWUP - Sent on subsequent turns (just new messages)
+
+State is tracked in .kaigi/.agent_state.yaml to avoid duplicate sends.
+"""
+
+# === KAIGI RULES (sent once at startup) ===
+
+KAIGI_RULES_TEMPLATE = """\
+# Kaigi Multi-Agent Collaboration Protocol
+
+You are now part of a kaigi (会議) multi-agent team. This protocol defines how you collaborate.
+
+## Permission States
+
+**DISCUSSION PHASE** (default):
+- You CAN: read files, search code, analyze, propose solutions
+- You CANNOT: write files, edit code, execute modifying commands
+- WHY: Team must reach consensus first, then user approves
+
+**EXECUTION PHASE** (after approval):
+- You CAN: read, write, edit files, execute commands
+- Triggered by: consensus + user approval
+
+## Collaboration Rules
+
+1. Messages from other agents are prefixed with [agent_id]
+2. Discuss constructively - build on others' ideas
+3. Use tools to READ files - don't ask for contents, read yourself
+4. Propose changes in code blocks - another agent executes after approval
+5. Signal agreement with: "{consensus_keyword}"
+6. Keep responses focused (100-300 words unless detail needed)
+7. Wait for teammates before finalizing - they may have insights
+
+{tool_definitions}
+
+You are agent [{agent_id}]. Await project context and topic.
+"""
+
+# === PROJECT CONTEXT (sent once on first turn) ===
+
+PROJECT_CONTEXT_TEMPLATE = """\
+## Project Context
+
+**Your Role:** {persona}
+
+**Team Members:** {agent_list}
+
+**Collaboration Mode:** {collaboration_mode}
+
+**Minimum Rounds:** {min_rounds} (before consensus can be finalized)
+
+---
+
+## Topic/Task
+
+{topic}
+
+---
+
+{history}
+
+It's your turn to respond as [{agent_id}].
+"""
 
 # === TOOL DEFINITIONS ===
 
@@ -226,6 +293,41 @@ All team members have signaled agreement. The proposed solution is:
 Team Lead: Review this solution and type 'approve' to finalize, or provide feedback to continue the discussion.
 """
 
+# === COMPACT FOLLOW-UP PROMPTS (for persistent agents) ===
+# These are used for subsequent turns when agent already has context in memory
+
+TEAM_FOLLOWUP_TEMPLATE = """\
+## New messages since your last response:
+{history}
+
+---
+
+Your turn [{agent_id}]. Reason normally in full prose, then end with ONE signal line:
+- "{consensus_keyword}" to finalize when you're ready to conclude
+- "DISAGREE: <point>" / "ACK" / "CONCEDE" to keep the discussion going
+"""
+
+LEAD_FOLLOWUP_TEMPLATE = """\
+## New messages since your last response:
+{history}
+
+---
+
+Your turn as Lead [{agent_id}]. Reason normally in full prose, then end with ONE signal line:
+- "{consensus_keyword}" to conclude
+- "DISAGREE: <point>" / "ACK" / "CONCEDE" to direct your team and continue
+"""
+
+MEMBER_FOLLOWUP_TEMPLATE = """\
+## New messages since your last response:
+{history}
+
+---
+
+Your turn [{agent_id}]. Reason normally in full prose, then end with ONE signal line:
+"ACK" / "DISAGREE: <point>" / "CONCEDE" to respond to the lead's direction or continue analysis.
+"""
+
 
 def build_team_prompt(
     agent_id: str,
@@ -234,8 +336,22 @@ def build_team_prompt(
     consensus_keyword: str,
     history: str,
     min_rounds: int = 2,
+    compact: bool = False,
 ) -> str:
-    """Build prompt for team mode (equal collaboration)."""
+    """Build prompt for team mode (equal collaboration).
+
+    Args:
+        compact: If True, use minimal follow-up prompt (for persistent agents
+                that already have context in memory). Saves ~800 tokens.
+    """
+    if compact and history:
+        # Compact mode: agent already has context, just send new messages
+        return TEAM_FOLLOWUP_TEMPLATE.format(
+            history=history,
+            agent_id=agent_id,
+            consensus_keyword=consensus_keyword,
+        )
+
     return TEAM_AGENT_TEMPLATE.format(
         tool_definitions=TOOL_DEFINITIONS,
         persona=persona or f"You are team member {agent_id}.",
@@ -255,8 +371,20 @@ def build_lead_prompt(
     history: str,
     team_list: str,
     min_rounds: int = 2,
+    compact: bool = False,
 ) -> str:
-    """Build prompt for lead agent in orchestrated mode."""
+    """Build prompt for lead agent in orchestrated mode.
+
+    Args:
+        compact: If True, use minimal follow-up prompt (for persistent agents).
+    """
+    if compact and history:
+        return LEAD_FOLLOWUP_TEMPLATE.format(
+            history=history,
+            agent_id=agent_id,
+            consensus_keyword=consensus_keyword,
+        )
+
     return LEAD_AGENT_TEMPLATE.format(
         tool_definitions=TOOL_DEFINITIONS,
         persona=persona or f"You are the team lead {agent_id}.",
@@ -276,8 +404,19 @@ def build_team_member_prompt(
     lead_id: str,
     history: str,
     min_rounds: int = 2,
+    compact: bool = False,
 ) -> str:
-    """Build prompt for team member in orchestrated mode."""
+    """Build prompt for team member in orchestrated mode.
+
+    Args:
+        compact: If True, use minimal follow-up prompt (for persistent agents).
+    """
+    if compact and history:
+        return MEMBER_FOLLOWUP_TEMPLATE.format(
+            history=history,
+            agent_id=agent_id,
+        )
+
     return TEAM_MEMBER_TEMPLATE.format(
         tool_definitions=TOOL_DEFINITIONS,
         persona=persona or f"You are team member {agent_id}.",
@@ -324,3 +463,65 @@ def format_context_files(files: dict[str, str], max_chars_per_file: int = 2000) 
             lines.append(content)
 
     return "\n\n".join(lines)
+
+
+# === PERSISTENT MEMORY PROMPT BUILDERS ===
+
+
+def build_rules_prompt(
+    agent_id: str,
+    consensus_keyword: str = "AGREED:",
+) -> str:
+    """Build kaigi rules prompt (sent once at agent startup).
+
+    This contains the collaboration protocol and tools - static info
+    that doesn't change between conversations.
+    """
+    return KAIGI_RULES_TEMPLATE.format(
+        agent_id=agent_id,
+        consensus_keyword=consensus_keyword,
+        tool_definitions=TOOL_DEFINITIONS,
+    )
+
+
+def build_project_prompt(
+    agent_id: str,
+    persona: str,
+    topic: str,
+    agent_list: list[str],
+    collaboration_mode: str,
+    min_rounds: int,
+    history: str = "",
+) -> str:
+    """Build project context prompt (sent once on first turn).
+
+    This contains project-specific info: persona, topic, team members.
+    """
+    history_text = history if history else "(Starting new discussion)"
+
+    return PROJECT_CONTEXT_TEMPLATE.format(
+        agent_id=agent_id,
+        persona=persona or f"You are team member {agent_id}.",
+        topic=topic,
+        agent_list=", ".join(agent_list),
+        collaboration_mode=collaboration_mode,
+        min_rounds=min_rounds,
+        history=history_text,
+    )
+
+
+def build_followup_prompt(
+    agent_id: str,
+    history: str,
+    consensus_keyword: str = "AGREED:",
+) -> str:
+    """Build compact follow-up prompt (for subsequent turns).
+
+    Agent already has rules and project context in memory,
+    just send new messages.
+    """
+    return TEAM_FOLLOWUP_TEMPLATE.format(
+        history=history,
+        agent_id=agent_id,
+        consensus_keyword=consensus_keyword,
+    )

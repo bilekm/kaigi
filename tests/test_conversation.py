@@ -452,6 +452,100 @@ class TestPromptBuilding:
         assert "lead" in prompt.lower()
         # Member shouldn't have the same decision-making language as lead
 
+    def test_get_conversation_history_delta_vs_full(self):
+        """Delta history returns only messages after the agent's last turn."""
+        record = ConversationRecord(
+            id="test-id",
+            workflow_id="wf-id",
+            workflow_name="test",
+            topic="Test topic",
+            max_rounds=3,
+        )
+        record.add_message(MessageRole.AGENT, "msg A1", agent_id="agentA")
+        record.add_message(MessageRole.AGENT, "msg B1", agent_id="agentB")
+        record.add_message(MessageRole.AGENT, "msg A2", agent_id="agentA")
+        record.add_message(MessageRole.AGENT, "msg B2", agent_id="agentB")
+
+        # Delta for agentA: only messages AFTER agentA's last message (A2) -> B2
+        delta = record.get_conversation_history(for_agent_id="agentA")
+        assert "msg B2" in delta
+        assert "msg A1" not in delta
+        assert "msg B1" not in delta
+        assert "msg A2" not in delta
+
+        # Full history includes everything
+        full = record.get_conversation_history()
+        for m in ("msg A1", "msg B1", "msg A2", "msg B2"):
+            assert m in full
+
+    def test_agent_retains_context_gating(self, sample_workflow, mock_store):
+        """Only persistent, non-spawn, session-persistent agents retain context."""
+        executor = ConversationExecutor(
+            workflow=sample_workflow,
+            yaml_content="name: test",
+            store=mock_store,
+        )
+        agent = sample_workflow.agents[0]  # references settings agent "claude"
+
+        # Not running -> never retains context (safe default)
+        with patch("kaigi.lib.agent_client.is_agent_running", return_value=False):
+            assert executor._agent_retains_context(agent) is False
+
+        # Running but spawn_mode -> stateless, no retention
+        with patch("kaigi.lib.agent_client.is_agent_running", return_value=True), \
+             patch("kaigi.services.conversation.get_agent_config") as mock_cfg:
+            mock_cfg.return_value = Mock(spawn_mode=True, args=[])
+            assert executor._agent_retains_context(agent) is False
+
+        # Running, no spawn_mode, but session persistence disabled -> no retention
+        with patch("kaigi.lib.agent_client.is_agent_running", return_value=True), \
+             patch("kaigi.services.conversation.get_agent_config") as mock_cfg:
+            mock_cfg.return_value = Mock(
+                spawn_mode=False, args=["--no-session-persistence"]
+            )
+            assert executor._agent_retains_context(agent) is False
+
+        # Running, persistent PTY, session persistence intact -> retains context
+        with patch("kaigi.lib.agent_client.is_agent_running", return_value=True), \
+             patch("kaigi.services.conversation.get_agent_config") as mock_cfg:
+            mock_cfg.return_value = Mock(spawn_mode=False, args=["--output-format", "text"])
+            assert executor._agent_retains_context(agent) is True
+
+    def test_build_prompt_compact_delta_vs_full(self, sample_workflow, mock_store):
+        """Compact branch sends delta only for context-retaining agents."""
+        executor = ConversationExecutor(
+            workflow=sample_workflow,
+            yaml_content="name: test",
+            store=mock_store,
+        )
+        agent = sample_workflow.agents[0]  # agent1
+
+        # Force the compact follow-up branch: agent already initialized, no rules needed
+        executor._initialized_agents.add(agent.id)
+        executor._agent_state.needs_rules = Mock(return_value=False)
+
+        record = ConversationRecord(
+            id="test-id",
+            workflow_id="wf-id",
+            workflow_name="test",
+            topic="Test topic",
+            max_rounds=3,
+        )
+        record.add_message(MessageRole.AGENT, "OLD agent1 msg", agent_id="agent1")
+        record.add_message(MessageRole.AGENT, "NEW agent2 msg", agent_id="agent2")
+
+        # Context-retaining -> delta excludes everything up to agent1's last turn
+        executor._agent_retains_context = Mock(return_value=True)
+        delta_prompt = executor._build_prompt(record, agent)
+        assert "NEW agent2 msg" in delta_prompt
+        assert "OLD agent1 msg" not in delta_prompt
+
+        # Stateless -> full history retained (safe)
+        executor._agent_retains_context = Mock(return_value=False)
+        full_prompt = executor._build_prompt(record, agent)
+        assert "NEW agent2 msg" in full_prompt
+        assert "OLD agent1 msg" in full_prompt
+
 
 class TestCommandHandling:
     """Tests for slash command handling."""
@@ -507,6 +601,18 @@ class TestCommandHandling:
         assert result is not None
         # Should contain agent IDs
         assert "agent1" in result or "agent2" in result
+
+    def test_handle_clear_command_returns_new_topic(self, sample_workflow, mock_store):
+        """Test /clear command returns __new_topic__ signal."""
+        executor = ConversationExecutor(
+            workflow=sample_workflow,
+            yaml_content="name: test",
+            store=mock_store,
+        )
+
+        result = executor._handle_command("/clear")
+
+        assert result == "__new_topic__"
 
 
 class TestEventHandlerIntegration:
@@ -664,3 +770,122 @@ class TestConversationRecord:
         result = record.check_consensus(["agent1", "agent2"], "AGREED:")
 
         assert result is False
+
+    def test_check_consensus_with_markdown_formatting(self):
+        """Test consensus check handles markdown formatting like **AGREED:**."""
+        record = ConversationRecord(
+            id="test-id",
+            workflow_id="wf-id",
+            workflow_name="test",
+            topic="Test topic",
+            max_rounds=3,
+        )
+        # Agent uses markdown bold around the keyword
+        record.add_message(MessageRole.AGENT, "**AGREED:** This is the plan", agent_id="agent1")
+        record.add_message(MessageRole.AGENT, "I concur. **AGREED:** Let's do it", agent_id="agent2")
+
+        result = record.check_consensus(["agent1", "agent2"], "AGREED:")
+
+        assert result is True
+
+    def test_normalize_for_consensus(self):
+        """Test markdown normalization for consensus matching."""
+        record = ConversationRecord(
+            id="test-id",
+            workflow_id="wf-id",
+            workflow_name="test",
+            topic="Test topic",
+            max_rounds=3,
+        )
+
+        # Test bold
+        assert record._normalize_for_consensus("**AGREED:**") == "AGREED:"
+        # Test italic
+        assert record._normalize_for_consensus("*AGREED:*") == "AGREED:"
+        # Test code
+        assert record._normalize_for_consensus("`AGREED:`") == "AGREED:"
+        # Test mixed
+        assert record._normalize_for_consensus("I think **AGREED:** is good") == "I think AGREED: is good"
+
+
+class TestStartingAgentFeature:
+    """Tests for /agentid <prompt> feature to start conversation with specific agent."""
+
+    def test_parse_starting_agent_valid(self, sample_workflow, mock_store):
+        """Test parsing /agentid <prompt> with valid agent ID."""
+        executor = ConversationExecutor(sample_workflow, "", store=mock_store)
+
+        topic = "/agent2 What's the test coverage strategy?"
+        clean_topic, agent_id = executor._parse_starting_agent(topic)
+
+        assert clean_topic == "What's the test coverage strategy?"
+        assert agent_id == "agent2"
+        assert executor.starting_agent_id == "agent2"
+
+    def test_parse_starting_agent_invalid(self, sample_workflow, mock_store):
+        """Test parsing /agentid with invalid agent ID treats as regular topic."""
+        executor = ConversationExecutor(sample_workflow, "", store=mock_store)
+
+        topic = "/invalidagent What's the test coverage strategy?"
+        clean_topic, agent_id = executor._parse_starting_agent(topic)
+
+        # Should return original topic unchanged
+        assert clean_topic == "/invalidagent What's the test coverage strategy?"
+        assert agent_id is None
+        assert executor.starting_agent_id is None
+
+    def test_parse_starting_agent_no_command(self, sample_workflow, mock_store):
+        """Test parsing topic without /agentid command."""
+        executor = ConversationExecutor(sample_workflow, "", store=mock_store)
+
+        topic = "What's the test coverage strategy?"
+        clean_topic, agent_id = executor._parse_starting_agent(topic)
+
+        assert clean_topic == "What's the test coverage strategy?"
+        assert agent_id is None
+        assert executor.starting_agent_id is None
+
+    def test_rotate_to_starting_agent(self, sample_workflow, mock_store):
+        """Test rotating agent list to start with specified agent."""
+        # Create workflow with 3 agents
+        workflow = ConversationWorkflow(
+            name="test-workflow",
+            version="1.0",
+            mode="conversation",
+            agents=[
+                ConversationAgent(id="architect", agent="claude"),
+                ConversationAgent(id="reviewer", agent="copilot"),
+                ConversationAgent(id="analyst", agent="glm"),
+            ],
+            topic="Test topic",
+        )
+
+        executor = ConversationExecutor(workflow, "", store=mock_store)
+
+        # Rotate to start with analyst (index 2)
+        rotated = executor._rotate_to_starting_agent(workflow.agents, "analyst")
+
+        assert len(rotated) == 3
+        assert rotated[0].id == "analyst"
+        assert rotated[1].id == "architect"
+        assert rotated[2].id == "reviewer"
+
+    def test_rotate_to_starting_agent_already_first(self, sample_workflow, mock_store):
+        """Test rotating when starting agent is already first."""
+        executor = ConversationExecutor(sample_workflow, "", store=mock_store)
+
+        rotated = executor._rotate_to_starting_agent(sample_workflow.agents, "agent1")
+
+        # Should return unchanged since agent1 is already first
+        assert rotated[0].id == "agent1"
+        assert rotated[1].id == "agent2"
+
+    def test_rotate_to_starting_agent_not_found(self, sample_workflow, mock_store):
+        """Test rotating with non-existent agent ID returns original list."""
+        executor = ConversationExecutor(sample_workflow, "", store=mock_store)
+
+        rotated = executor._rotate_to_starting_agent(sample_workflow.agents, "nonexistent")
+
+        # Should return original order
+        assert rotated[0].id == "agent1"
+        assert rotated[1].id == "agent2"
