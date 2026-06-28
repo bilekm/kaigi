@@ -54,17 +54,20 @@ agents:
     spawn_mode: true
     description: "OpenCode (deepseek-v4-pro) via routatic-proxy"
 
-  # GLM via Z.AI (GLM-4.7 model)
+  # GLM via Z.AI (GLM-5.2 model)
   # Note: API is slower, may need up to 60s timeout
-  # args: ["--model", "glm-4.7", "-p", "{{prompt}}", "--output-format", "text", "--no-session-persistence"]
   glm:
     command: claude
     args: ["-p", "{{prompt}}", "--output-format", "text", "--no-session-persistence"]
     env:
       ANTHROPIC_BASE_URL: "https://api.z.ai/api/anthropic"
-      ANTHROPIC_AUTH_TOKEN: "${ZAI_API_KEY}"
-      ANTHROPIC_MODEL: "glm-4.7"
+      ANTHROPIC_AUTH_TOKEN: "${GLM_API_KEY}"
+      # Pin the model on every tier (alias resolution falls back otherwise).
+      ANTHROPIC_MODEL: "glm-5.2"
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "glm-5.2"
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "glm-5.2"
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "glm-5.2"
     timeout: 600
     spawn_mode: true
-    description: "GLM-4.7 via Z.AI"
+    description: "GLM-5.2 via Z.AI"
 
