@@ -31,6 +31,10 @@ def converse_command() -> click.Command:
         "--non-interactive", is_flag=True, help="Run without user prompts (auto-continue)"
     )
     @click.option(
+        "--no-execution", "no_execution", is_flag=True,
+        help="Advisory/decision mode: stop at the consensus recommendation, never edit files"
+    )
+    @click.option(
         "--no-auto-start", is_flag=True, help="Don't auto-start missing agents"
     )
     @click.option(
@@ -50,6 +54,7 @@ def converse_command() -> click.Command:
         workflow_file: Path,
         use_json: bool,
         non_interactive: bool,
+        no_execution: bool,
         no_auto_start: bool,
         no_color: bool,
         style: str | None,
@@ -106,6 +111,7 @@ def converse_command() -> click.Command:
                 yaml_content=yaml_content,
                 event_handler=None if non_interactive else None,  # Will default to CliEventHandler
                 non_interactive=non_interactive,
+                no_execution=no_execution,
                 enable_color=not no_color,
                 persistent_mode=False,  # One-shot mode: exit after completion
             )

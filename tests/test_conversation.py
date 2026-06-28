@@ -547,6 +547,101 @@ class TestPromptBuilding:
         assert "OLD agent1 msg" in full_prompt
 
 
+class TestDecisionOnlyMode:
+    """Tests for the --no-execution / decision_only advisory guard."""
+
+    def _two_agent_workflow(self):
+        return ConversationWorkflow(
+            name="decide-test", version="1.0", mode="conversation", collaboration="team",
+            agents=[
+                ConversationAgent(id="a1", agent="claude", persona="A1"),
+                ConversationAgent(id="a2", agent="claude", persona="A2"),
+            ],
+            topic="A hard decision to deliberate",
+            max_rounds=2, min_rounds=1, consensus_keyword="AGREED:",
+        )
+
+    def _run(self, decision_only, mock_store):
+        executor = ConversationExecutor(
+            workflow=self._two_agent_workflow(),
+            yaml_content="name: decide-test",
+            store=mock_store,
+            non_interactive=True,
+            decision_only=decision_only,
+        )
+        write_perm_calls = []
+
+        async def fake_turn(record, agent, workflow_id, with_write_permission=False, **kwargs):
+            write_perm_calls.append(with_write_permission)
+            # Discussion turns add an AGREED message; execution-phase turns don't.
+            if not with_write_permission:
+                record.add_message(MessageRole.AGENT, "AGREED: do X", agent_id=agent.id)
+            return "AGREED: do X"
+
+        executor._agent_turn = fake_turn
+        result = executor.execute()
+        return result, write_perm_calls
+
+    def test_decision_only_skips_execution_phase(self, mock_store):
+        """decision_only: consensus is captured, write-enabled execution never runs."""
+        result, write_perm_calls = self._run(decision_only=True, mock_store=mock_store)
+
+        assert True not in write_perm_calls  # execution phase (write perm) never entered
+        assert result["status"] == "completed"
+        assert result["consensus_content"] and "AGREED:" in result["consensus_content"]
+
+    def test_default_still_executes(self, mock_store):
+        """Backward compat: without decision_only, consensus triggers execution phase."""
+        result, write_perm_calls = self._run(decision_only=False, mock_store=mock_store)
+
+        assert True in write_perm_calls  # execution phase with write permission ran
+        assert result["status"] == "completed"
+
+    def test_execute_conversation_forwards_no_execution(self, mock_store):
+        """execute_conversation maps no_execution -> ConversationExecutor.decision_only."""
+        from kaigi.services import conversation as conv_mod
+
+        captured = {}
+        real_init = conv_mod.ConversationExecutor.__init__
+
+        def spy_init(self, *args, **kwargs):
+            captured["decision_only"] = kwargs.get("decision_only")
+            return real_init(self, *args, **kwargs)
+
+        def stub_execute(self):
+            return {"status": "completed"}
+
+        with patch.object(conv_mod.ConversationExecutor, "__init__", spy_init), \
+             patch.object(conv_mod.ConversationExecutor, "execute", stub_execute):
+            conv_mod.execute_conversation(
+                workflow=self._two_agent_workflow(),
+                yaml_content="name: decide-test",
+                non_interactive=True,
+                no_execution=True,
+            )
+        assert captured["decision_only"] is True
+
+    def test_rate_limit_auto_skips_in_non_interactive(self, sample_workflow, mock_store):
+        """Non-interactive rate-limit auto-skips without prompting (no crash)."""
+        from unittest.mock import AsyncMock
+
+        executor = ConversationExecutor(
+            workflow=sample_workflow, yaml_content="name: test",
+            store=mock_store, non_interactive=True,
+        )
+        executor.event_handler = Mock()
+        executor.event_handler.on_agent_rate_limited = AsyncMock(return_value="quit")
+
+        record = ConversationRecord(
+            id="t", workflow_id="w", workflow_name="test", topic="T", max_rounds=2,
+        )
+        agent = sample_workflow.agents[0]
+        action = asyncio.run(executor._handle_rate_limit(record, agent, "soon"))
+
+        assert action == "skip"
+        executor.event_handler.on_agent_rate_limited.assert_not_called()
+
+
 class TestCommandHandling:
     """Tests for slash command handling."""
 

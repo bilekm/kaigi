@@ -79,6 +79,7 @@ class ConversationExecutor:
         store: WorkflowStore | None = None,
         event_handler: ConversationEventHandler | None = None,
         non_interactive: bool = False,
+        decision_only: bool = False,
         persistent_mode: bool = False,
     ):
         self.workflow = workflow
@@ -86,6 +87,9 @@ class ConversationExecutor:
         self.store = store or WorkflowStore()
         self.event_handler = event_handler or NullEventHandler()
         self.non_interactive = non_interactive
+        # Advisory/decision mode: stop at the consensus recommendation, never
+        # enter the write-enabled execution phase.
+        self.decision_only = decision_only
         self.persistent_mode = persistent_mode
         self.logger = get_logger()
         self.starting_agent_id: str | None = None  # Agent to start conversation with
@@ -327,6 +331,16 @@ class ConversationExecutor:
                     # Prompt for user approval if consensus reached (and min_rounds satisfied)
                     if record.consensus_status == ConsensusStatus.AGREED:
                         self.event_handler.on_consensus_reached(record.consensus_content or "")
+
+                        # Advisory/decision mode: the consensus recommendation IS the
+                        # deliverable. Capture it and stop here - never enter the
+                        # write-enabled execution phase. Status stays AGREED (consensus
+                        # reached, not human-approved/executed).
+                        if self.decision_only:
+                            record.complete()
+                            self.store.save_conversation(workflow_id, record)
+                            break
+
                         # In non-interactive mode, auto-approve consensus
                         if self.non_interactive:
                             user_response = "approve"
@@ -569,7 +583,18 @@ class ConversationExecutor:
         agent: ConversationAgent,
         reset_time: str,
     ) -> str:
-        """Handle rate limit - prompt user for action."""
+        """Handle rate limit.
+
+        In non-interactive mode there is no user to prompt, so auto-skip the
+        rate-limited agent for this round (the conversation continues without
+        it). Only prompt the user when running interactively.
+        """
+        if self.non_interactive:
+            self.logger.warning(
+                "Agent rate-limited; skipping this round (non-interactive)",
+                agent_id=agent.id,
+            )
+            return "skip"
         return await self.event_handler.on_agent_rate_limited(agent.id, reset_time)
 
     def _get_replacement_agent(self, agent_ref: str) -> ConversationAgent | None:
@@ -1806,6 +1831,7 @@ def execute_conversation(
     yaml_content: str,
     event_handler: ConversationEventHandler | None = None,
     non_interactive: bool = False,
+    no_execution: bool = False,
     enable_color: bool = True,
     persistent_mode: bool = False,
 ) -> dict[str, Any]:
@@ -1818,6 +1844,8 @@ def execute_conversation(
         yaml_content: Raw YAML content for storage
         event_handler: Event handler for UI (defaults to CliEventHandler)
         non_interactive: If True, skip prompts and auto-approve consensus
+        no_execution: If True, advisory/decision mode - stop at the consensus
+            recommendation and never enter the write-enabled execution phase
         enable_color: Whether to enable colorized output when using default CliEventHandler (default: True)
         persistent_mode: If True, conversation will return to shell after completion (default: False)
     """
@@ -1835,6 +1863,7 @@ def execute_conversation(
         yaml_content=yaml_content,
         event_handler=event_handler,
         non_interactive=non_interactive,
+        decision_only=no_execution,
         persistent_mode=persistent_mode,
     )
     return executor.execute()
