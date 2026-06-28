@@ -641,6 +641,37 @@ class TestDecisionOnlyMode:
         assert action == "skip"
         executor.event_handler.on_agent_rate_limited.assert_not_called()
 
+    def test_specialist_failure_does_not_abort_council(self, mock_store):
+        """Non-interactive: a failing specialist is skipped; the lead still concludes."""
+        from kaigi.lib.errors import agent_failed
+
+        workflow = ConversationWorkflow(
+            name="resilient", version="1.0", mode="conversation",
+            collaboration="orchestrated", lead="judge",
+            agents=[
+                ConversationAgent(id="judge", agent="claude", persona="Lead"),
+                ConversationAgent(id="spec", agent="claude", persona="Specialist"),
+            ],
+            topic="A hard decision", max_rounds=2, min_rounds=1, consensus_keyword="AGREED:",
+        )
+        executor = ConversationExecutor(
+            workflow=workflow, yaml_content="name: resilient",
+            store=mock_store, non_interactive=True, decision_only=True,
+        )
+
+        async def fake_turn(record, agent, workflow_id, with_write_permission=False, **kwargs):
+            if agent.id == "spec":
+                raise agent_failed("spec", 1, "[stdout] You've hit your session limit")
+            record.add_message(MessageRole.AGENT, "AGREED: do X", agent_id=agent.id)
+            return "AGREED: do X"
+
+        executor._agent_turn = fake_turn
+        # Must NOT raise despite the specialist failing every turn.
+        result = executor.execute()
+
+        assert result["status"] == "completed"
+        assert result["consensus_content"] and "AGREED:" in result["consensus_content"]
+
 
 class TestCommandHandling:
     """Tests for slash command handling."""

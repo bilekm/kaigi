@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kaigi"
-version = "0.2.0.8"
+version = "0.2.0.10"
 description = "会議 (kaigi) - CLI-based multi-agent collaboration platform"
 readme = "README.md"
 requires-python = ">=3.11"

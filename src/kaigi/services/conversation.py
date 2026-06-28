@@ -287,6 +287,17 @@ class ConversationExecutor:
                                         except KaigiError:
                                             pass  # If replacement also fails, just continue
                                 # "wait" - just continue, will retry on next round
+                            elif self.non_interactive and e.code.value == "AGENT_FAILED":
+                                # Resilience: in unattended mode a single agent failing
+                                # (e.g. an API usage/session limit) must not abort the
+                                # whole council. Skip it this round; the remaining agents
+                                # (and the lead) still proceed and can reach consensus.
+                                self.logger.warning(
+                                    "Agent failed; skipping this round (non-interactive)",
+                                    agent_id=agent.id,
+                                    error=str(e),
+                                )
+                                continue
                             else:
                                 raise
 
