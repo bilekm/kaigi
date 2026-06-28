@@ -15,7 +15,7 @@ agents:
     persona: "Semantic coherence specialist focused on preserving user intent, decision rationale, and context continuity. You care about maintaining the 'why' behind decisions."
 
   - id: gemini
-    agent: copilot
+    agent: opencode
     persona: "Context window optimization expert focused on token efficiency, information density, and retrieval performance. You care about maximizing information per token."
 
 topic: |

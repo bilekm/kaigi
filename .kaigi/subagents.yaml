@@ -56,7 +56,7 @@ review:
   permissions:
     - read:*
     - grep:*
-  agent: copilot
+  agent: opencode
 
 # General-purpose agent for any task
 general:
@@ -141,7 +141,7 @@ security:
     - read:*
     - grep:*
     - glob:*
-  agent: copilot
+  agent: opencode
 
 # Performance optimizer for finding bottlenecks
 performance:

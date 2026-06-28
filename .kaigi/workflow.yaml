@@ -14,7 +14,7 @@ agents:
     persona: "You are a senior software architect. Analyze code structure, design patterns, and architectural decisions. Focus on maintainability, extensibility, and system design."
 
   - id: reviewer
-    agent: copilot
+    agent: opencode
     persona: "You are a pragmatic code reviewer. Look for potential bugs, edge cases, error handling issues, and security concerns. Be critical but constructive."
 
   - id: analyst

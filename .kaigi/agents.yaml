@@ -14,30 +14,44 @@ agents:
   # Claude Code CLI
   claude:
     command: claude
-    args: ["-p", "{{prompt}}", "--output-format", "text", "--no-session-persistence"]
+    args: ["-p", "{{prompt}}", "--output-format", "text"]
     timeout: 300
     spawn_mode: true
     description: "Claude Code CLI"
     # model: claude-sonnet-4-5  # Default model (optional)
 
-  # GitHub Copilot CLI
-  # Requires: npm install -g @github/copilot && GitHub auth
-  copilot:
-    command: copilot
-    args: ["-p", "{{prompt}}"]
-    timeout: 300
+  # OpenCode via routatic-proxy (Anthropic-compatible proxy on localhost:3456)
+  # Requires the proxy running first:  routatic-proxy serve --port 3456 &
+  # (the `opencode` shell function auto-starts it; for kaigi start it once manually)
+  # Change the model with ANTHROPIC_MODEL below — must match a model the proxy
+  # knows (see ~/.config/routatic-proxy/config.json: models / model_overrides).
+  opencode:
+    command: claude
+    args: ["-p", "{{prompt}}", "--output-format", "text", "--no-session-persistence"]
+    env:
+      ANTHROPIC_BASE_URL: "http://127.0.0.1:3456"
+      ANTHROPIC_AUTH_TOKEN: "dummy-key"
+      # Pin the model on every tier. claude resolves its model alias
+      # (settings.json has "model": "opus") via these, so set all three
+      # to the same target to stay deterministic regardless of inherited env.
+      ANTHROPIC_MODEL: "deepseek-v4-pro"
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "deepseek-v4-pro"
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "deepseek-v4-pro"
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "deepseek-v4-pro"
+    timeout: 600
     spawn_mode: true
-    description: "GitHub Copilot CLI"
-    # model: gemini-3-pro-preview  # Select model
+    description: "OpenCode (deepseek-v4-pro) via routatic-proxy"
 
   # GLM via Z.AI (GLM-4.7 model)
   # Note: API is slower, may need up to 60s timeout
+  # args: ["--model", "glm-4.7", "-p", "{{prompt}}", "--output-format", "text", "--no-session-persistence"]
   glm:
     command: claude
     args: ["-p", "{{prompt}}", "--output-format", "text", "--no-session-persistence"]
     env:
       ANTHROPIC_BASE_URL: "https://api.z.ai/api/anthropic"
       ANTHROPIC_AUTH_TOKEN: "${ZAI_API_KEY}"
+      ANTHROPIC_MODEL: "glm-4.7"
     timeout: 600
     spawn_mode: true
     description: "GLM-4.7 via Z.AI"

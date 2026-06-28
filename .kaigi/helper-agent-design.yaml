@@ -16,7 +16,7 @@ agents:
     persona: "Usage optimization specialist focused on quota efficiency, cost reduction, and practical resource allocation."
 
   - id: implementer
-    agent: copilot
+    agent: opencode
     persona: "Implementation engineer focused on simple, maintainable code with clear interfaces and error handling."
 
 topic: |
