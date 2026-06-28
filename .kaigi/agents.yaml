@@ -20,6 +20,18 @@ agents:
     description: "Claude Code CLI"
     # model: claude-sonnet-4-5  # Default model (optional)
 
+  # Claude Code CLI, persistent PTY (context-retaining across turns).
+  # Runs interactively in a long-lived PTY session instead of spawning per prompt,
+  # so the conversation executor sends only NEW messages each turn (delta history)
+  # instead of the full transcript -> large input-token savings on long discussions.
+  # Requires a running server:  kaigi agents start claude-persistent
+  claude-persistent:
+    command: claude
+    args: []
+    timeout: 300
+    spawn_mode: false
+    description: "Claude Code CLI (persistent PTY, context-retaining)"
+
   # OpenCode via routatic-proxy (Anthropic-compatible proxy on localhost:3456)
   # Requires the proxy running first:  routatic-proxy serve --port 3456 &
   # (the `opencode` shell function auto-starts it; for kaigi start it once manually)
