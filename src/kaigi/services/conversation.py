@@ -1000,7 +1000,7 @@ class ConversationExecutor:
             env = {**config.env, **agent.env}  # Workflow env overrides settings
             timeout = agent.timeout if agent.timeout != 300 else config.timeout
             model = agent.model or config.model  # Workflow model overrides settings
-            return command, args, env, timeout, model
+            return command, args, self._expand_env(env), timeout, model
         else:
             # Inline configuration
             if not agent.command:
@@ -1008,7 +1008,23 @@ class ConversationExecutor:
                     f"Agent '{agent.id}' has no command. "
                     f"Either specify 'command' or 'agent' (reference to settings)."
                 )
-            return agent.command, agent.args, agent.env, agent.timeout, agent.model
+            return (
+                agent.command, agent.args, self._expand_env(agent.env),
+                agent.timeout, agent.model,
+            )
+
+    @staticmethod
+    def _expand_env(env: dict[str, str]) -> dict[str, str]:
+        """Expand ${VAR}/$VAR references in env values.
+
+        Settings-file agents are expanded via AgentConfig.resolve_env_vars(), but
+        inline workflow-agent env (and workflow-level overrides) are not - without
+        this they would be passed through literally (e.g. the string "${GLM_API_KEY}"
+        sent as an auth token, causing 401s).
+        """
+        from kaigi.lib.settings import _expand_env_vars
+
+        return {k: _expand_env_vars(v) if isinstance(v, str) else v for k, v in env.items()}
 
     async def _execute_agent(
         self,

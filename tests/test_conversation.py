@@ -547,6 +547,29 @@ class TestPromptBuilding:
         assert "OLD agent1 msg" in full_prompt
 
 
+class TestEnvExpansion:
+    """Inline workflow-agent env must expand ${VAR} (else literal token -> 401)."""
+
+    def test_inline_agent_env_is_expanded(self, mock_store, monkeypatch):
+        monkeypatch.setenv("KAIGI_TEST_TOKEN", "secret-value-123")
+        workflow = ConversationWorkflow(
+            name="env-test", version="1.0", mode="conversation", collaboration="team",
+            agents=[
+                ConversationAgent(
+                    id="a", command="claude", args=["-p", "{{prompt}}"],
+                    env={"ANTHROPIC_AUTH_TOKEN": "${KAIGI_TEST_TOKEN}"}, persona="A",
+                ),
+                ConversationAgent(id="b", command="claude", persona="B"),
+            ],
+            topic="T", max_rounds=2, consensus_keyword="AGREED:",
+        )
+        executor = ConversationExecutor(
+            workflow=workflow, yaml_content="name: env-test", store=mock_store,
+        )
+        _, _, env, _, _ = executor._resolve_agent(workflow.agents[0])
+        assert env["ANTHROPIC_AUTH_TOKEN"] == "secret-value-123"
+
+
 class TestDecisionOnlyMode:
     """Tests for the --no-execution / decision_only advisory guard."""
 
