@@ -190,6 +190,32 @@ class ConversationEventHandler(ABC):
             max_rounds: The maximum number of rounds configured
         """
 
+    @abstractmethod
+    async def on_agent_rate_limited(
+        self,
+        agent_id: str,
+        reset_time: str,
+    ) -> str:
+        """Called when an agent hits rate limit.
+
+        Args:
+            agent_id: ID of the rate-limited agent
+            reset_time: When the limit resets (if known)
+
+        Returns:
+            User choice: "skip" to skip agent, "wait" to wait,
+            "replace:<agent>" to replace with another agent, or "quit"
+        """
+
+    @abstractmethod
+    async def on_paused(self) -> str:
+        """Called when conversation is paused (e.g., ESC key pressed).
+
+        Returns:
+            User choice: "continue" to resume, "quit" to end,
+            or a command to execute
+        """
+
 
 class NullEventHandler(ConversationEventHandler):
     """No-op event handler for testing or non-interactive mode.
@@ -268,3 +294,15 @@ class NullEventHandler(ConversationEventHandler):
 
     def on_max_rounds_reached(self, max_rounds: int) -> None:
         pass
+
+    async def on_agent_rate_limited(
+        self,
+        agent_id: str,
+        reset_time: str,
+    ) -> str:
+        # In non-interactive mode, skip the rate-limited agent
+        return "skip"
+
+    async def on_paused(self) -> str:
+        # In non-interactive mode, continue automatically
+        return "continue"

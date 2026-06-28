@@ -41,6 +41,19 @@ kaigi
 kaigi converse workflow.yaml
 ```
 
+### Continuous Conversation Mode
+
+After a conversation reaches consensus, kaigi automatically loops back for a new topic while keeping agents running:
+
+```bash
+# Start conversation with persistent agents
+kaigi converse workflow.yaml
+
+# After consensus, you'll be prompted for a new topic automatically
+# Agents retain context - no cold-start latency
+# Press Ctrl+C or type /quit to exit
+```
+
 ### Agent Management
 
 ```bash
@@ -82,6 +95,44 @@ kaigi agents start copilot
 # Terminal 3:
 kaigi converse workflow.yaml --no-auto-start
 ```
+
+## Agent Memory Management
+
+Kaigi tracks what information has been sent to each persistent agent to avoid duplicate context and save tokens.
+
+### State Storage
+
+- **Location:** `.kaigi/.agent_state.yaml`
+- **Tracks:**
+  - Whether `KAIGI_RULES` have been sent (collaboration protocol)
+  - Whether `PROJECT_CONTEXT` has been sent (topic, persona, team)
+  - Workflow hash (detects workflow changes)
+
+### When State Resets
+
+- Workflow file content changes (hash mismatch)
+- Manual reset via `kaigi cleanup`
+- Agent is removed and re-added
+
+## Prompt Architecture
+
+For persistent agents, kaigi uses a three-tier prompt system to minimize token usage:
+
+### 1. KAIGI_RULES (sent once at startup)
+
+Contains the collaboration protocol, permission states, and tool definitions.
+
+**Permission States:**
+- **Discussion Phase** (default): Agents can read, search, analyze — but NOT write/edit
+- **Execution Phase** (after approval): Agents can write, edit, execute commands
+
+### 2. PROJECT_CONTEXT (sent once per workflow)
+
+Contains the agent's persona, team members, collaboration mode, and topic.
+
+### 3. COMPACT/FOLLOWUP (subsequent turns)
+
+Contains only new messages since the agent's last response — saves ~800 tokens per turn.
 
 ## Workflow Configuration
 
@@ -165,6 +216,25 @@ agents:
     model: gemini-3-pro-preview  # Optional model selection
 ```
 
+## Environment Variables
+
+| Variable | Description | Values |
+|----------|-------------|--------|
+| `KAIGI_STYLE` | Pygments syntax highlighting style | `pastie`, `monokai`, `vs`, etc. |
+| `KAIGI_BACKGROUND` | Terminal background for theme selection | `light`, `dark`, `auto` (default: auto-detect) |
+| `NO_COLOR` | Disable all colored output | Any value (if set, colors disabled) |
+
+```bash
+# Example: Light terminal theme
+export KAIGI_BACKGROUND=light
+
+# Example: Specific Pygments style
+export KAIGI_STYLE=breeze
+
+# Example: Disable colors
+export NO_COLOR=1
+```
+
 ## In-Conversation Commands
 
 During a conversation, you can type commands:
@@ -183,18 +253,26 @@ During a conversation, you can type commands:
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                       kaigi converse                         │
-│                                                              │
-│   Auto-detects persistent agents via Unix sockets            │
-│   Falls back to spawning new processes if not running        │
-│                                                              │
-│         ┌──────────────┬──────────────┬──────────────┐      │
-│         ▼              ▼              ▼              ▼      │
-│    /tmp/kaigi-agents/                                        │
-│    ├── claude.sock     ├── copilot.sock   ├── glm.sock      │
-│    └── claude.pid      └── copilot.pid    └── glm.pid       │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                         kaigi converse                            │
+│                                                                   │
+│   Auto-detects persistent agents via Unix sockets                 │
+│   Falls back to spawning new processes if not running             │
+│   Tracks agent state to avoid duplicate context sends             │
+│                                                                   │
+│         ┌──────────────┬──────────────┬──────────────┐          │
+│         ▼              ▼              ▼              ▼          │
+│    /tmp/kaigi-agents/                                               │
+│    ├── claude.sock     ├── copilot.sock   ├── glm.sock            │
+│    └── claude.pid      └── copilot.pid    └── glm.pid             │
+│                                                                   │
+│   Prompt Architecture (per agent):                                │
+│   ├── KAIGI_RULES      (sent once at startup)                    │
+│   ├── PROJECT_CONTEXT  (sent once per workflow)                  │
+│   └── COMPACT/FOLLOWUP (subsequent turns, ~800 tokens saved)     │
+│                                                                   │
+│   State Storage: .kaigi/.agent_state.yaml                        │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ## Commands Reference

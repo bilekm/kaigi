@@ -65,6 +65,29 @@ class AgentClient:
         except Exception:
             return False
 
+    async def clear(self) -> bool:
+        """Clear agent's conversation memory.
+
+        After clearing, the next prompt will start a fresh conversation
+        (without -c/--continue flag).
+
+        Returns:
+            True if memory was cleared, False on error.
+        """
+        if not self.writer or not self.reader:
+            return False
+
+        try:
+            request = {"type": "clear"}
+            self.writer.write((json.dumps(request) + "\n").encode())
+            await self.writer.drain()
+
+            line = await asyncio.wait_for(self.reader.readline(), timeout=5)
+            response = json.loads(line.decode())
+            return response.get("type") == "cleared"
+        except Exception:
+            return False
+
     async def prompt(
         self,
         content: str,
@@ -181,6 +204,25 @@ async def send_prompt(
     try:
         await client.connect()
         return await client.prompt(content, timeout, on_chunk)
+    finally:
+        await client.close()
+
+
+async def clear_agent_memory(agent_id: str) -> bool:
+    """Clear an agent's conversation memory.
+
+    After clearing, the next prompt starts a fresh conversation.
+
+    Args:
+        agent_id: The agent to clear
+
+    Returns:
+        True if cleared successfully, False otherwise.
+    """
+    client = AgentClient(agent_id)
+    try:
+        await client.connect()
+        return await client.clear()
     finally:
         await client.close()
 

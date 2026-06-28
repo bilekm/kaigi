@@ -300,28 +300,57 @@ class ConversationRecord(BaseModel):
         self.messages.append(msg)
         return msg
 
-    def get_conversation_history(self) -> str:
+    def get_conversation_history(self, for_agent_id: str | None = None) -> str:
         """Format conversation history for prompt.
 
         Includes summary if available, followed by messages since the summary.
+
+        Args:
+            for_agent_id: If provided, returns only messages since this agent's
+                         last message (incremental history for persistent agents).
+                         If None, returns full history (for spawn mode).
         """
         lines = []
 
-        # Add summary if available
-        if self.summary:
+        # Determine start index
+        start_index = 0
+
+        if for_agent_id is not None:
+            # Incremental mode: find this agent's last message
+            # Return only messages AFTER the agent's last response
+            for i in range(len(self.messages) - 1, -1, -1):
+                msg = self.messages[i]
+                if msg.role == MessageRole.AGENT and msg.agent_id == for_agent_id:
+                    start_index = i + 1  # Start AFTER this agent's last message
+                    break
+
+            # If agent hasn't spoken yet, include full history (first turn)
+            if start_index == 0 and self.messages:
+                # Check if agent has spoken at all
+                agent_has_spoken = any(
+                    m.role == MessageRole.AGENT and m.agent_id == for_agent_id
+                    for m in self.messages
+                )
+                if agent_has_spoken:
+                    # Agent spoke but start_index is 0 - means last message is first
+                    # This shouldn't happen in normal flow, but handle it
+                    pass
+                # else: first turn, include everything
+
+        # Add summary if available (only for full history mode)
+        if for_agent_id is None and self.summary:
             lines.append("[PREVIOUS DISCUSSION SUMMARY]")
             lines.append(self.summary)
             lines.append("")
             lines.append("[END SUMMARY]")
             lines.append("")
 
-        # Add messages since summary cutoff (or all messages if no summary)
-        start_index = 0
-        if self.summary_cutoff_round is not None:
+        # Apply summary cutoff (only affects full history mode)
+        if for_agent_id is None and self.summary_cutoff_round is not None:
             # Find first message at or after summary cutoff round
             for i, msg in enumerate(self.messages):
                 if msg.round_number >= self.summary_cutoff_round:
-                    start_index = i
+                    start_index = max(start_index, i)
                     break
 
         # Format messages
@@ -335,17 +364,35 @@ class ConversationRecord(BaseModel):
 
         return "\n\n".join(lines)
 
+    def _normalize_for_consensus(self, text: str) -> str:
+        """Normalize text for consensus keyword matching.
+
+        Strips markdown formatting that agents often add:
+        - **bold** -> bold
+        - *italic* -> italic
+        - `code` -> code
+        """
+        import re
+        # Remove markdown bold/italic
+        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # **bold** -> bold
+        text = re.sub(r'\*([^*]+)\*', r'\1', text)      # *italic* -> italic
+        text = re.sub(r'`([^`]+)`', r'\1', text)        # `code` -> code
+        return text
+
     def check_consensus(self, agents: list[str], keyword: str) -> bool:
         """Check if all agents have signaled agreement.
 
         Looks for the keyword in the most recent message from each agent.
+        Handles markdown formatting (e.g., **AGREED:** matches AGREED:).
         """
         agent_agreed: dict[str, bool] = {aid: False for aid in agents}
 
         for msg in reversed(self.messages):
             if msg.role == MessageRole.AGENT and msg.agent_id in agent_agreed:
                 if not agent_agreed[msg.agent_id]:  # Only check first (most recent)
-                    agent_agreed[msg.agent_id] = keyword in msg.content
+                    # Normalize content to handle markdown formatting
+                    normalized = self._normalize_for_consensus(msg.content)
+                    agent_agreed[msg.agent_id] = keyword in normalized
 
         return all(agent_agreed.values())
 

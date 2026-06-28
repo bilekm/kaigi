@@ -56,3 +56,4 @@ Thumbs.db
 
 # Project-specific
 ~/.orchestrator/
+.kaigi/.agent_state.yaml

@@ -14,6 +14,7 @@ class ErrorCode(str, Enum):
 
     AGENT_FAILED = "AGENT_FAILED"
     AGENT_TIMEOUT = "AGENT_TIMEOUT"
+    AGENT_RATE_LIMITED = "AGENT_RATE_LIMITED"
     WORKFLOW_INVALID = "WORKFLOW_INVALID"
     WORKFLOW_LOCKED = "WORKFLOW_LOCKED"
     EXECUTION_NOT_FOUND = "EXECUTION_NOT_FOUND"
@@ -184,3 +185,55 @@ def no_consensus(execution_id: str, rounds: int) -> KaigiError:
         message=f"Conversation '{execution_id}' ended after {rounds} rounds without consensus",
         details={"execution_id": execution_id, "rounds": rounds},
     )
+
+
+def agent_rate_limited(agent_id: str, reset_time: str = "") -> KaigiError:
+    """Create an AGENT_RATE_LIMITED error."""
+    message = f"Agent '{agent_id}' hit rate limit"
+    if reset_time:
+        message += f" (resets {reset_time})"
+    return KaigiError(
+        code=ErrorCode.AGENT_RATE_LIMITED,
+        message=message,
+        details={"agent_id": agent_id, "reset_time": reset_time} if reset_time else {"agent_id": agent_id},
+    )
+
+
+# Rate limit detection patterns for different agents
+RATE_LIMIT_PATTERNS = [
+    # Claude
+    r"You've hit your limit",
+    r"rate limit",
+    r"resets?\s*\d+[ap]m",
+    r"resets?\s*\d+:\d+",
+    r"quota exceeded",
+    # OpenAI/Copilot
+    r"Rate limit reached",
+    r"Too many requests",
+    r"429",
+    # Generic
+    r"limit exceeded",
+    r"try again later",
+    r"throttl",
+]
+
+
+def detect_rate_limit(output: str) -> tuple[bool, str]:
+    """Detect if output indicates a rate limit error.
+
+    Args:
+        output: Agent output or error message
+
+    Returns:
+        Tuple of (is_rate_limited, reset_time_if_found)
+    """
+    import re
+
+    for pattern in RATE_LIMIT_PATTERNS:
+        if re.search(pattern, output, re.IGNORECASE):
+            # Try to extract reset time
+            reset_match = re.search(r'resets?\s*(\d+[ap]m|\d+:\d+)', output, re.IGNORECASE)
+            reset_time = reset_match.group(1) if reset_match else ""
+            return True, reset_time
+
+    return False, ""

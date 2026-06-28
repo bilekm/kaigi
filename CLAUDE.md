@@ -27,6 +27,19 @@ Python 3.11+: Follow standard conventions
 
 <!-- MANUAL ADDITIONS START -->
 
+## Versioning
+
+Version format: `MAJOR.MINOR.PATCH.BUILD` (e.g., `0.2.0.1`)
+
+**Rule:** Increment the 4th digit (BUILD) on every code change to pyproject.toml.
+
+- BUILD: Increment on every change (0.2.0.1 → 0.2.0.2 → ...)
+- PATCH: Increment for bug fixes, reset BUILD (0.2.1.0)
+- MINOR: Increment for new features, reset PATCH and BUILD (0.3.0.0)
+- MAJOR: Increment for breaking changes (1.0.0.0)
+
+Check current version: `kaigi --version`
+
 ## Commit Message Format
 
 All commits should use the following footer:

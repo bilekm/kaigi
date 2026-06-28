@@ -318,6 +318,13 @@ class AgentServer:
                     response = {"type": "pong", "agent_id": self.agent_id}
                     writer.write((json.dumps(response) + "\n").encode())
                     await writer.drain()
+                elif req_type == "clear":
+                    # Reset conversation state - next prompt starts fresh
+                    self._has_conversation = False
+                    self._log("Conversation memory cleared")
+                    response = {"type": "cleared", "agent_id": self.agent_id}
+                    writer.write((json.dumps(response) + "\n").encode())
+                    await writer.drain()
                 elif req_type == "quit":
                     break
                 else:

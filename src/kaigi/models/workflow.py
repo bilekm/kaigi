@@ -157,6 +157,22 @@ class ExecutionConfig(BaseModel):
     executor_agent: str | None = None
 
 
+class HelperConfig(BaseModel):
+    """Configuration for helper agent used for quota optimization."""
+
+    # Reference to agent in settings (e.g., "glm")
+    agent: str
+
+    # Whether the helper is enabled (backward compatible)
+    enabled: bool = False
+
+    # Whether to show helper activity in logs
+    visible: bool = True
+
+    # Tasks the helper should perform
+    tasks: list[Literal["preprocess_prompt", "summarize_result"]] = Field(default_factory=list)
+
+
 class ConversationWorkflow(BaseModel):
     """A conversation-mode workflow where agents discuss a topic."""
 
@@ -184,6 +200,7 @@ class ConversationWorkflow(BaseModel):
 
     consensus_keyword: str = "AGREED:"  # How agents signal agreement
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)  # Execution phase config
+    helper: HelperConfig | None = None  # Helper agent for quota optimization
 
     @field_validator("name")
     @classmethod

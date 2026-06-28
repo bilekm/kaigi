@@ -8,8 +8,8 @@ from pathlib import Path
 
 import click
 
-from kaigi.lib.errors import KaigiError, print_error
 from kaigi.commands.utils import _auto_start_agents
+from kaigi.lib.errors import KaigiError, print_error
 
 
 def json_option(f):
@@ -33,7 +33,28 @@ def converse_command() -> click.Command:
     @click.option(
         "--no-auto-start", is_flag=True, help="Don't auto-start missing agents"
     )
-    def converse(workflow_file: Path, use_json: bool, non_interactive: bool, no_auto_start: bool) -> None:
+    @click.option(
+        "--no-color", is_flag=True, help="Disable colorized output"
+    )
+    @click.option(
+        "--style", type=str, default=None,
+        help="Pygments style for code highlighting (overrides KAIGI_STYLE)"
+    )
+    @click.option(
+        "--background",
+        type=str,
+        default=None,
+        help="Terminal background: light, dark, or auto (overrides KAIGI_BACKGROUND)",
+    )
+    def converse(
+        workflow_file: Path,
+        use_json: bool,
+        non_interactive: bool,
+        no_auto_start: bool,
+        no_color: bool,
+        style: str | None,
+        background: str | None,
+    ) -> None:
         """Start a conversation between AI agents.
 
         The workflow file must have mode: conversation.
@@ -47,11 +68,17 @@ def converse_command() -> click.Command:
         - Type a message to inject into the conversation
         - Type 'quit' to end early
         - Type 'approve' when consensus is reached
+
+        Code highlighting styles:
+        - Use --style to explicitly set a Pygments style (e.g., monokai, pastie, vs)
+        - Use --background to set terminal theme: light, dark, or auto
+        - Environment variables: KAIGI_STYLE (explicit) or KAIGI_BACKGROUND (light/dark/auto)
+        - Default: auto-detect (pastie for dark, vs for light)
         """
-        from kaigi.services.parser import parse_workflow_file
-        from kaigi.services.conversation import execute_conversation
-        from kaigi.models.workflow import ConversationWorkflow
         from kaigi.lib.errors import workflow_invalid
+        from kaigi.models.workflow import ConversationWorkflow
+        from kaigi.services.conversation import execute_conversation
+        from kaigi.services.parser import parse_workflow_file
 
         try:
             workflow = parse_workflow_file(workflow_file)
@@ -65,12 +92,22 @@ def converse_command() -> click.Command:
             if not no_auto_start:
                 _auto_start_agents(workflow, use_json)
 
+            # Apply CLI overrides for style/background
+            if style:
+                import os
+                os.environ["KAIGI_STYLE"] = style
+            if background:
+                import os
+                os.environ["KAIGI_BACKGROUND"] = background
+
             yaml_content = workflow_file.read_text()
             result = execute_conversation(
                 workflow=workflow,
                 yaml_content=yaml_content,
                 event_handler=None if non_interactive else None,  # Will default to CliEventHandler
                 non_interactive=non_interactive,
+                enable_color=not no_color,
+                persistent_mode=False,  # One-shot mode: exit after completion
             )
 
             if use_json:
@@ -106,9 +143,9 @@ def say(message: str, execution_id: str | None, use_json: bool) -> None:
     Use this to contribute to a running conversation from another terminal.
     If execution_id is not provided, targets the most recent running conversation.
     """
-    from kaigi.services.store import WorkflowStore
-    from kaigi.services.conversation import inject_user_message
     from kaigi.lib.errors import execution_not_found
+    from kaigi.services.conversation import inject_user_message
+    from kaigi.services.store import WorkflowStore
 
     store = WorkflowStore()
 
@@ -147,8 +184,8 @@ def say(message: str, execution_id: str | None, use_json: bool) -> None:
 @json_option
 def transcript(execution_id: str | None, round_num: int | None, use_json: bool) -> None:
     """Show the full conversation transcript."""
-    from kaigi.services.store import WorkflowStore
     from kaigi.lib.errors import execution_not_found
+    from kaigi.services.store import WorkflowStore
 
     store = WorkflowStore()
 
@@ -196,7 +233,11 @@ def transcript(execution_id: str | None, round_num: int | None, use_json: bool) 
             click.echo(f"Conversation: {record.id}")
             click.echo(f"Workflow: {record.workflow_name}")
             click.echo(f"Topic: {record.topic[:80]}...")
-            click.echo(f"Status: {record.status.value} | Consensus: {record.consensus_status.value}")
+            status_line = (
+                f"Status: {record.status.value} | "
+                f"Consensus: {record.consensus_status.value}"
+            )
+            click.echo(status_line)
             click.echo(f"Rounds: {record.current_round}/{record.max_rounds}")
             click.echo()
             click.echo("=" * 60)

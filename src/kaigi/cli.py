@@ -76,15 +76,24 @@ def _run_conversation(config_path: Path) -> None:
         _auto_start_agents(workflow, use_json=False)
 
         yaml_content = config_path.read_text()
-        result = execute_conversation(workflow, yaml_content)
 
-        if result["status"] == "completed":
-            click.echo()
-            click.echo(f"Conversation completed. Rounds: {result['rounds_completed']}")
-            if result.get("consensus_status") == "approved":
-                click.echo("Consensus: Approved")
-        else:
+        # Continuous conversation loop
+        while True:
+            workflow.topic = ""  # Clear for fresh start
+            result = execute_conversation(
+                workflow, yaml_content, persistent_mode=True
+            )  # Persistent mode: return to shell
+
+            if result["status"] == "completed":
+                click.echo()
+                click.echo(f"Conversation completed. Rounds: {result['rounds_completed']}")
+                if result.get("consensus_status") == "approved":
+                    click.echo("Consensus: Approved")
+                    click.echo()
+                    continue  # Loop for next conversation
+            # Exit on non-completed status
             click.echo(f"Conversation {result['status']}")
+            break
 
     except KaigiError as e:
         print_error(e, False)
